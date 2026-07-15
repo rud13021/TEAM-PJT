@@ -1,0 +1,41 @@
+[
+  {
+    "id": 201,
+    "name": "Seoul Lantern Festival",
+    "type": "Festival",
+    "category": "Festivals",
+    "area": "Jongno-gu",
+    "distance": "1.5 km",
+    "rating": 4.9,
+    "tags": ["Night view", "Seasonal"],
+    "lat": 37.5702,
+    "lng": 126.9835,
+    "legendTone": "highlight"
+  },
+  {
+    "id": 202,
+    "name": "Hangang Summer Night Market",
+    "type": "Festival",
+    "category": "Festivals",
+    "area": "Yeongdeungpo-gu",
+    "distance": "2.3 km",
+    "rating": 4.6,
+    "tags": ["Food", "Live music"],
+    "lat": 37.5270,
+    "lng": 126.9340,
+    "legendTone": "primary"
+  },
+  {
+    "id": 203,
+    "name": "Autumn Culture Walk",
+    "type": "Festival",
+    "category": "Festivals",
+    "area": "Mapo-gu",
+    "distance": "1.8 km",
+    "rating": 4.7,
+    "tags": ["Arts", "Local artists"],
+    "lat": 37.5560,
+    "lng": 126.9235,
+    "legendTone": "neutral"
+  }
+]
