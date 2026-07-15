@@ -148,8 +148,7 @@
     "searchKeyword": "건대입구역",
     "naverSearchUrl": "https://search.naver.com/search.naver?query=건대입구역",
     "kakaoPlaceId": null
-  }
-[
+  },
   {
     "id": 11,
     "name": "홍대입구역",
@@ -299,7 +298,7 @@
     "searchKeyword": "삼각지역",
     "naverSearchUrl": "https://search.naver.com/search.naver?query=삼각지역",
     "kakaoPlaceId": null
-  },dd
+  },
 {
   "id": 21,
   "name": "서울역",
