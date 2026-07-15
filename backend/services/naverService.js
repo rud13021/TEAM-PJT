@@ -17,18 +17,31 @@ export async function searchNaverBlogs(query, display = 6, start = 1) {
 		throw error
 	}
 
-	const response = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
-		params: {
-			query: trimmedQuery,
-			display,
-			start,
-			sort: 'date',
-		},
-		headers: {
-			'X-Naver-Client-Id': config.naverClientId,
-			'X-Naver-Client-Secret': config.naverClientSecret,
-		},
-	})
+	let response
+	try {
+		response = await axios.get('https://openapi.naver.com/v1/search/blog.json', {
+			params: {
+				query: trimmedQuery,
+				display,
+				start,
+				sort: 'date',
+			},
+			headers: {
+				'X-Naver-Client-Id': config.naverClientId,
+				'X-Naver-Client-Secret': config.naverClientSecret,
+			},
+		})
+	} catch (error) {
+		if (error.response?.status) {
+			const naverError = new Error(error.response.data?.errorMessage || 'Naver API request failed')
+			naverError.statusCode = error.response.status
+			throw naverError
+		}
+
+		const networkError = new Error('Naver API request failed')
+		networkError.statusCode = 502
+		throw networkError
+	}
 
 	const items = Array.isArray(response.data?.items) ? response.data.items : []
 
