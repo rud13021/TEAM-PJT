@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import HomeView from '../views/HomeView.vue'
-import MapView from '../views/MapView.vue'
 import RecommendView from '../views/RecommendView.vue'
 import GroupView from '../views/GroupView.vue'
 import BoardView from '../views/BoardView.vue'
@@ -21,7 +20,7 @@ const router = createRouter({
 		{
 			path: '/map',
 			name: 'map',
-			component: MapView,
+			component: RecommendView,
 		},
 		{
 			path: '/recommend',
