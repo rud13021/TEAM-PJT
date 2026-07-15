@@ -1,4 +1,5 @@
 const KAKAO_MOBILITY_REST_KEY = import.meta.env.VITE_KAKAO_MOBILITY_REST_KEY || ''
+import { searchKakaoPlaces } from './kakaoMap'
 
 const CATEGORY_DATASETS = {
 	places: { label: '관광지', path: '/data/서울_관광지.json' },
@@ -9,6 +10,8 @@ const CATEGORY_DATASETS = {
 	courses: { label: '여행코스', path: '/data/서울_여행코스.json' },
 	festivals: { label: '축제공연행사', path: '/data/서울_축제공연행사.json' },
 }
+
+const travelCoursePointCache = new Map()
 
 function isFiniteNumber(value) {
 	return typeof value === 'number' && Number.isFinite(value)
@@ -208,7 +211,7 @@ export async function buildTopMeetingRecommendations(startLocations, candidates 
 		})
 		.filter(Boolean)
 
-	if (validStarts.length < 2) {
+	if (validStarts.length < 1) {
 		return []
 	}
 
@@ -404,4 +407,125 @@ export function getRecommendCategoryOptions() {
 		id,
 		name: value.label,
 	}))
+}
+
+function buildCoursePointSearchQueries(course, point) {
+	const title = String(point?.title || '').trim()
+	const addr1 = String(point?.addr1 || '').trim()
+	const addr2 = String(point?.addr2 || '').trim()
+	const courseTitle = String(course?.title || '').trim()
+
+	return [...new Set([
+		[title, addr1, addr2].filter(Boolean).join(' '),
+		[courseTitle, title].filter(Boolean).join(' '),
+		title,
+	].filter(Boolean))]
+}
+
+async function resolveTravelCoursePoint(course, point) {
+	const cacheKey = `${course?.contentid || course?.title || 'course'}:${point?.contentId || point?.title || 'point'}`
+	if (travelCoursePointCache.has(cacheKey)) {
+		return travelCoursePointCache.get(cacheKey)
+	}
+
+	const directLocation = normalizePoint(point)
+	let resolvedLocation = directLocation
+	let resolvedAddress = [point?.addr1, point?.addr2].filter(Boolean).join(' ').trim()
+
+	if (!resolvedLocation) {
+		for (const query of buildCoursePointSearchQueries(course, point)) {
+			try {
+				const results = await searchKakaoPlaces(query)
+				const first = Array.isArray(results) ? results[0] : null
+				const location = normalizePoint({ lat: Number(first?.y), lng: Number(first?.x) })
+				if (location) {
+					resolvedLocation = location
+					resolvedAddress = first?.addressName || first?.roadAddressName || resolvedAddress
+					break
+				}
+			} catch (error) {
+				console.warn('Failed to resolve course point location:', query, error)
+			}
+		}
+	}
+
+	const resolvedPoint = {
+		...point,
+		lat: resolvedLocation?.lat ?? null,
+		lng: resolvedLocation?.lng ?? null,
+		mapx: point?.mapx || (resolvedLocation ? String(resolvedLocation.lng) : null),
+		mapy: point?.mapy || (resolvedLocation ? String(resolvedLocation.lat) : null),
+		address: resolvedAddress || null,
+	}
+
+	travelCoursePointCache.set(cacheKey, resolvedPoint)
+	return resolvedPoint
+}
+
+function normalizeTravelCoursePoint(point, index) {
+	const sequenceNumber = Number(point?.sequence)
+	return {
+		...point,
+		sequence: Number.isFinite(sequenceNumber) ? sequenceNumber : index,
+	}
+}
+
+export async function buildNearestTravelCourseRecommendations(destination, options = {}) {
+	const { topN = 2, shortlistSize = 8 } = options
+	const target = normalizePoint(destination)
+	if (!target) {
+		return []
+	}
+
+	const courses = await loadDataset(CATEGORY_DATASETS.courses.path)
+	const shortlisted = courses
+		.filter((course) => Array.isArray(course?.coursePoints) && course.coursePoints.length > 0)
+		.map((course) => ({
+			...course,
+			straightDistanceKm: haversineDistanceKm(course, target),
+		}))
+		.filter((course) => Number.isFinite(course.straightDistanceKm))
+		.sort((left, right) => left.straightDistanceKm - right.straightDistanceKm)
+		.slice(0, Math.max(topN, shortlistSize))
+
+	const scored = []
+
+	for (const course of shortlisted) {
+		const route = await getRouteBetween(target, course, destination?.name || '선택 목적지')
+		const resolvedPoints = await Promise.all(
+			course.coursePoints
+				.map((point, index) => normalizeTravelCoursePoint(point, index))
+				.sort((left, right) => left.sequence - right.sequence)
+				.map((point) => resolveTravelCoursePoint(course, point)),
+		)
+
+		const visiblePoints = resolvedPoints.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+		if (!route || !visiblePoints.length) {
+			continue
+		}
+
+		scored.push({
+			...course,
+			routeFromDestination: route,
+			travelMinutes: route.durationMinutes,
+			travelDistanceKm: route.distanceKm,
+			straightDistanceKm: haversineDistanceKm(course, target),
+			coursePoints: resolvedPoints,
+			visibleCoursePoints: visiblePoints,
+		})
+	}
+
+	return scored
+		.sort((left, right) => {
+			return (
+				left.travelMinutes - right.travelMinutes ||
+				left.travelDistanceKm - right.travelDistanceKm ||
+				left.straightDistanceKm - right.straightDistanceKm
+			)
+		})
+		.slice(0, topN)
+		.map((course, index) => ({
+			...course,
+			rank: index + 1,
+		}))
 }

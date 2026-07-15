@@ -1,8 +1,10 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useMapStore } from '../stores/map'
 import { useRecommendStore } from '../stores/recommend'
 import { loadKakaoMapSdk } from '../services/kakaoMap'
+import ShareFavoriteBar from '../components/common/ShareFavoriteBar.vue'
 import {
 	buildRoutesToDestination,
 	getRecommendCategoryOptions,
@@ -11,11 +13,13 @@ import {
 
 const mapStore = useMapStore()
 const recommendStore = useRecommendStore()
+const route = useRoute()
+const router = useRouter()
 
 const mapContainer = ref(null)
 const statusMessage = ref('지도 로딩 중...')
 const routePreview = ref([])
-const categoryOptions = getRecommendCategoryOptions()
+const categoryOptions = getRecommendCategoryOptions().filter((item) => item.id !== 'courses')
 
 const startLocations = computed(() =>
 	mapStore.startLocations.filter((location) => location.name?.trim() && Number.isFinite(location.lat) && Number.isFinite(location.lng)),
@@ -23,13 +27,65 @@ const startLocations = computed(() =>
 
 const recommendations = computed(() => recommendStore.recommendations)
 const selectedRecommendation = computed(() => recommendStore.selectedRecommendation)
+const activeRecommendation = computed(() => selectedRecommendation.value || recommendations.value[0] || null)
 const selectedCategories = computed(() => recommendStore.selectedCategoryIds)
 const nearbySpots = computed(() => recommendStore.nearbySpots)
+const isMapTab = computed(() => route.name === 'map')
+const allowedCategoryIds = categoryOptions.map((item) => item.id)
 
 let mapInstance = null
 let markers = []
 let overlays = []
 let polylines = []
+let mapRenderTimer = null
+
+const shareFavoriteItem = computed(() => {
+	if (!selectedRecommendation.value) {
+		return null
+	}
+
+	const recommendation = selectedRecommendation.value
+	const recommendationId = encodeURIComponent(String(recommendation.id))
+	const shareUrl = typeof window !== 'undefined'
+		? `${window.location.origin}/map?rid=${recommendationId}`
+		: ''
+	const nearbySpotTitles = nearbySpots.value.slice(0, 4).map((spot) => spot.title).filter(Boolean)
+
+	return {
+		key: `destination:${recommendation.id}`,
+		kind: 'destination',
+		title: `${recommendation.rank}순위 ${recommendation.name}`,
+		description: `총 이동 ${recommendation.totalTravelTime}분 · 도착 편차 ${recommendation.arrivalGap}분`,
+		summary: [recommendation.category, recommendation.district].filter(Boolean).join(' · '),
+		shareUrl,
+		buttonText: '추천 지도 열기',
+		routeName: 'map',
+		badge: '추천 거점',
+		meta: {
+			recommendation: {
+				id: recommendation.id,
+				name: recommendation.name,
+			},
+			nearbySpots: nearbySpotTitles,
+			travel: {
+				totalTravelTime: recommendation.totalTravelTime,
+				arrivalGap: recommendation.arrivalGap,
+			},
+		},
+	}
+})
+
+function restoreRecommendationFromQuery() {
+	const routeRecommendationId = String(route.query.rid || '').trim()
+	if (!routeRecommendationId || !recommendations.value.length) {
+		return
+	}
+
+	const matched = recommendations.value.find((item) => String(item.id) === routeRecommendationId)
+	if (matched && selectedRecommendation.value?.id !== matched.id) {
+		recommendStore.setSelectedRecommendation(matched.id)
+	}
+}
 
 function clearMapObjects() {
 	markers.forEach((marker) => marker.setMap(null))
@@ -111,28 +167,30 @@ function drawRouteLine(kakao, map, route, color) {
 }
 
 async function ensureRoutesForSelected() {
-	if (!selectedRecommendation.value) {
+	if (!activeRecommendation.value) {
 		routePreview.value = []
 		return
 	}
 
-	if (Array.isArray(selectedRecommendation.value.routes) && selectedRecommendation.value.routes.length) {
-		routePreview.value = selectedRecommendation.value.routes
+	if (Array.isArray(activeRecommendation.value.routes) && activeRecommendation.value.routes.length) {
+		routePreview.value = activeRecommendation.value.routes
 		return
 	}
 
-	routePreview.value = await buildRoutesToDestination(startLocations.value, selectedRecommendation.value)
+	routePreview.value = await buildRoutesToDestination(startLocations.value, activeRecommendation.value)
 }
 
 async function refreshNearbySpots() {
-	if (!selectedRecommendation.value || !selectedCategories.value.length) {
+	const visibleCategoryIds = selectedCategories.value.filter((id) => allowedCategoryIds.includes(id))
+
+	if (!activeRecommendation.value || !visibleCategoryIds.length) {
 		recommendStore.setNearbySpots([])
 		return
 	}
 
 	const spots = await loadNearbyCategorySpots(
-		selectedCategories.value,
-		selectedRecommendation.value,
+		visibleCategoryIds,
+		activeRecommendation.value,
 		3,
 		30,
 	)
@@ -141,6 +199,11 @@ async function refreshNearbySpots() {
 
 function selectRecommendation(recommendationId) {
 	recommendStore.setSelectedRecommendation(recommendationId)
+}
+
+async function openRecommendTab(recommendationId) {
+	recommendStore.setSelectedRecommendation(recommendationId)
+	await router.push({ name: 'recommend' })
 }
 
 function toggleCategory(categoryId) {
@@ -158,12 +221,23 @@ function openNaverSearch(url) {
 	window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+function queueMapRender(delay = 0) {
+	if (mapRenderTimer) {
+		clearTimeout(mapRenderTimer)
+	}
+
+	mapRenderTimer = setTimeout(async () => {
+		await nextTick()
+		await initRecommendMap()
+	}, delay)
+}
+
 async function initRecommendMap() {
 	if (!mapContainer.value) {
 		return
 	}
 
-	if (!selectedRecommendation.value) {
+	if (!activeRecommendation.value) {
 		statusMessage.value = '메인 페이지에서 중간 지점 계산 후 TOP 3를 선택해 주세요.'
 		if (mapContainer.value) {
 			mapContainer.value.innerHTML = '<div class="map-empty">메인 페이지에서 중간 지점 계산 후 TOP 3를 선택해 주세요.</div>'
@@ -177,71 +251,76 @@ async function initRecommendMap() {
 			return
 		}
 
-		await ensureRoutesForSelected()
-
-		if (mapInstance && mapContainer.value) {
-			clearMapObjects()
-			mapContainer.value.innerHTML = ''
-			mapInstance = null
+		if (!mapContainer.value.offsetWidth || !mapContainer.value.offsetHeight) {
+			queueMapRender(180)
+			return
 		}
 
-		const centerPoint = selectedRecommendation.value
-		mapInstance = new kakao.maps.Map(mapContainer.value, {
-			center: new kakao.maps.LatLng(centerPoint.lat, centerPoint.lng),
-			level: 6,
-		})
+		await ensureRoutesForSelected()
 
+		if (!mapInstance) {
+			mapInstance = new kakao.maps.Map(mapContainer.value, {
+				center: new kakao.maps.LatLng(activeRecommendation.value.lat, activeRecommendation.value.lng),
+				level: 6,
+			})
+		}
+
+		const centerPoint = activeRecommendation.value
 		clearMapObjects()
 
-		const bounds = new kakao.maps.LatLngBounds()
 		const destinationPosition = new kakao.maps.LatLng(centerPoint.lat, centerPoint.lng)
-		addMarker(kakao, mapInstance, centerPoint, '#4f46e5', `${selectedRecommendation.value.rank}순위 ${selectedRecommendation.value.name}`, 'pin', 36)
-		bounds.extend(destinationPosition)
+		mapInstance.relayout()
+		addMarker(kakao, mapInstance, centerPoint, '#4f46e5', `${activeRecommendation.value.rank}순위 ${activeRecommendation.value.name}`, 'pin', 36)
 
 		const startColors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
 		startLocations.value.forEach((location, index) => {
 			addMarker(kakao, mapInstance, location, startColors[index % startColors.length], `출발 ${index + 1}: ${location.name}`, 'circle', 30)
-			bounds.extend(new kakao.maps.LatLng(location.lat, location.lng))
 		})
 
 		routePreview.value.forEach((route, index) => {
 			drawRouteLine(kakao, mapInstance, route, startColors[index % startColors.length])
-			if (Number.isFinite(route.origin?.lat) && Number.isFinite(route.origin?.lng)) {
-				bounds.extend(new kakao.maps.LatLng(route.origin.lat, route.origin.lng))
-			}
 		})
 
 		nearbySpots.value.forEach((spot) => {
 			addMarker(kakao, mapInstance, spot, '#7c3aed', spot.title, 'star', 30)
-			bounds.extend(new kakao.maps.LatLng(spot.lat, spot.lng))
 		})
 
-		mapInstance.setBounds(bounds)
+		setTimeout(() => {
+			if (!mapInstance) {
+				return
+			}
+
+			mapInstance.relayout()
+			mapInstance.setCenter(destinationPosition)
+			mapInstance.setLevel(6)
+		}, 180)
 		statusMessage.value = ''
 	} catch (error) {
 		console.error('Recommend map failed:', error)
 		statusMessage.value = '카카오 지도 로딩에 실패했습니다. 카카오 앱 키를 확인해 주세요.'
-		if (mapContainer.value) {
-			mapContainer.value.innerHTML = '<div class="map-empty">카카오 지도 로딩에 실패했습니다. 카카오 앱 키를 확인해 주세요.</div>'
-		}
 	}
 }
 
 onMounted(async () => {
+	restoreRecommendationFromQuery()
 	await refreshNearbySpots()
-	nextTick(() => initRecommendMap())
+	queueMapRender(240)
 })
+
+watch(recommendations, () => {
+	restoreRecommendationFromQuery()
+}, { deep: true })
 
 watch(selectedRecommendation, async () => {
 	await refreshNearbySpots()
-	nextTick(() => initRecommendMap())
+	queueMapRender(240)
 })
 
 watch(
 	selectedCategories,
 	async () => {
 		await refreshNearbySpots()
-		nextTick(() => initRecommendMap())
+		queueMapRender(240)
 	},
 	{ deep: true },
 )
@@ -249,12 +328,26 @@ watch(
 
 <template>
 	<main class="recommend-demo">
+		<section class="recommend-top-panels">
+			<div class="panel-card panel-card--title">
+				<p class="panel-eyebrow">거점 분석 & 지도</p>
+				<h1>출발지 편차까지 반영한 목적지 TOP 3를 한눈에 확인하세요.</h1>
+				<ul class="summary-list">
+					<li>총 이동시간과 도착 편차를 함께 비교합니다.</li>
+					<li>카테고리 선택 시 지도 스팟이 즉시 갱신됩니다.</li>
+				</ul>
+			</div>
+
+			<div class="panel-card panel-card--compact">
+				<h2>나의 출발 포인트</h2>
+				<div class="chip-list">
+					<span v-for="item in startLocations" :key="item.name + item.lat + item.lng" class="chip">{{ item.name }}</span>
+				</div>
+			</div>
+		</section>
+
 		<section class="recommend-shell">
 			<aside class="control-panel">
-				<div class="panel-card panel-card--title">
-					<p class="panel-eyebrow">거점 분석 & 지도</p>
-					<h1>출발지별 이동시간과 편차를 함께 계산해 TOP 3 목적지를 추천합니다.</h1>
-				</div>
 
 				<div class="panel-card">
 					<h2>중간 지점 TOP 3</h2>
@@ -267,18 +360,21 @@ watch(
 							:class="selectedRecommendation?.id === item.id ? 'rank-item--active' : ''"
 							@click="selectRecommendation(item.id)"
 						>
-							<strong>{{ item.rank }}순위 {{ item.name }}</strong>
-							<span>{{ item.totalTravelTime }}분 · 편차 {{ item.arrivalGap }}분</span>
+							<div class="rank-item__content">
+								<strong>{{ item.rank }}순위 {{ item.name }}</strong>
+								<span>{{ item.totalTravelTime }}분 · 편차 {{ item.arrivalGap }}분</span>
+							</div>
+							<button
+								v-if="isMapTab"
+								type="button"
+								class="rank-item__link"
+								@click.stop="openRecommendTab(item.id)"
+							>
+								추천 여행코스 보러가기 ->
+							</button>
 						</button>
 					</div>
 					<p v-else class="empty-text">메인 화면에서 중간 지점 계산을 먼저 진행해 주세요.</p>
-				</div>
-
-				<div class="panel-card">
-					<h2>나의 출발 포인트</h2>
-					<div class="chip-list">
-						<span v-for="item in startLocations" :key="item.name + item.lat + item.lng" class="chip">{{ item.name }}</span>
-					</div>
 				</div>
 
 				<div class="panel-card">
@@ -316,13 +412,16 @@ watch(
 			</aside>
 
 			<section class="map-panel">
-				<div class="map-overlay" v-if="selectedRecommendation">
-					<p>추천 거점</p>
-					<h2>{{ selectedRecommendation.name }}</h2>
-					<span>총 이동 {{ selectedRecommendation.totalTravelTime }}분 · 도착 편차 {{ selectedRecommendation.arrivalGap }}분</span>
+				<div class="map-stage">
+					<div class="map-overlay" v-if="selectedRecommendation">
+						<p>추천 거점</p>
+						<h2>{{ selectedRecommendation.name }}</h2>
+						<span>총 이동 {{ selectedRecommendation.totalTravelTime }}분 · 도착 편차 {{ selectedRecommendation.arrivalGap }}분</span>
+					</div>
+					<div v-if="statusMessage" class="map-status">{{ statusMessage }}</div>
+					<div ref="mapContainer" class="kakao-map"></div>
 				</div>
-				<div v-if="statusMessage" class="map-status">{{ statusMessage }}</div>
-				<div ref="mapContainer" class="kakao-map"></div>
+				<ShareFavoriteBar class="map-actions" :item="shareFavoriteItem" context-label="현재 선택된 추천 장소" />
 			</section>
 		</section>
 	</main>
@@ -335,6 +434,14 @@ watch(
 	margin: 0 auto;
 	padding: 24px 24px 72px;
 	box-sizing: border-box;
+}
+
+.recommend-top-panels {
+	display: grid;
+	grid-template-columns: minmax(0, 1.48fr) minmax(260px, 0.7fr);
+	align-items: start;
+	gap: 20px;
+	margin-bottom: 20px;
 }
 
 .recommend-shell {
@@ -355,10 +462,22 @@ watch(
 	background: #fff;
 	border: 1px solid #e2e8f0;
 	box-shadow: 0 10px 25px rgba(15, 23, 42, 0.04);
+	transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.panel-card:hover {
+	transform: translateY(-3px);
+	border-color: #cbd5e1;
+	box-shadow: 0 18px 32px rgba(15, 23, 42, 0.12);
 }
 
 .panel-card--grow {
 	flex: 1;
+}
+
+.panel-card--compact {
+	max-width: 470px;
+	justify-self: start;
 }
 
 .panel-card--title h1 {
@@ -368,19 +487,31 @@ watch(
 	color: #0f172a;
 }
 
+.summary-list {
+	margin: 12px 0 0;
+	padding-left: 18px;
+	display: grid;
+	gap: 6px;
+	font-size: 0.9rem;
+	line-height: 1.5;
+	color: #64748b;
+}
+
 .panel-card h2 {
 	margin: 0 0 10px;
-	font-size: 1rem;
+	font-size: 1.14rem;
 	color: #0f172a;
+	font-family: var(--font-accent);
 }
 
 .panel-eyebrow {
 	margin: 0 0 8px;
-	font-size: 0.8rem;
+	font-size: 0.9rem;
 	font-weight: 800;
 	letter-spacing: 0.18em;
 	text-transform: uppercase;
 	color: #4f46e5;
+	font-family: var(--font-accent);
 }
 
 .rank-list {
@@ -390,29 +521,67 @@ watch(
 
 .rank-item {
 	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 4px;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
 	padding: 10px 12px;
 	border-radius: 14px;
 	border: 1px solid #e2e8f0;
 	background: #f8fafc;
 	cursor: pointer;
+	transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.rank-item:hover {
+	transform: translateY(-2px);
+	border-color: #cbd5e1;
+	box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+
+.rank-item__content {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	min-width: 0;
 }
 
 .rank-item strong {
-	font-size: 0.94rem;
+	font-size: 1.12rem;
 	color: #0f172a;
+	font-family: var(--font-accent);
+	line-height: 1.3;
 }
 
 .rank-item span {
-	font-size: 0.82rem;
+	font-size: 0.86rem;
 	color: #64748b;
+	width: 100%;
+	padding-top: 6px;
+	margin-top: 2px;
+	border-top: 1px solid #edf2f7;
 }
 
 .rank-item--active {
 	border-color: #4f46e5;
 	background: #eef2ff;
+}
+
+.rank-item__link {
+	flex-shrink: 0;
+	border: 0;
+	padding: 0;
+	background: transparent;
+	color: #4338ca;
+	font-size: 0.82rem;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.rank-item__link:hover,
+.rank-item__link:focus-visible {
+	text-decoration: underline;
+	outline: none;
 }
 
 .chip-list {
@@ -431,6 +600,13 @@ watch(
 	font-size: 0.9rem;
 	border: 1px solid transparent;
 	cursor: pointer;
+	transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.chip:hover {
+	transform: translateY(-1px);
+	border-color: #cbd5e1;
+	box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
 }
 
 .chip--accent {
@@ -446,6 +622,9 @@ watch(
 .place-list {
 	display: grid;
 	gap: 10px;
+	max-height: 360px;
+	overflow-y: auto;
+	padding-right: 4px;
 }
 
 .place-card {
@@ -456,6 +635,12 @@ watch(
 	padding: 12px 14px;
 	border-radius: 16px;
 	background: #f8fafc;
+	transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.place-card:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
 }
 
 .place-card__main {
@@ -468,6 +653,7 @@ watch(
 	font-size: 0.75rem;
 	font-weight: 700;
 	color: #4f46e5;
+	font-family: var(--font-accent);
 }
 
 .place-card strong {
@@ -489,6 +675,12 @@ watch(
 	color: #fff;
 	font-weight: 900;
 	cursor: pointer;
+	transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.naver-button:hover {
+	transform: translateY(-1px) scale(1.04);
+	box-shadow: 0 8px 18px rgba(3, 199, 90, 0.35);
 }
 
 .empty-text {
@@ -498,19 +690,33 @@ watch(
 }
 
 .map-panel {
-	position: relative;
-	min-height: 560px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 18px;
 	border-radius: 28px;
-	overflow: hidden;
 	border: 1px solid #e2e8f0;
 	background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
 	box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
+	transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.map-panel:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 22px 38px rgba(15, 23, 42, 0.14);
+}
+
+.map-stage {
+	position: relative;
+	height: 500px;
+	border-radius: 22px;
+	overflow: hidden;
+	background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
 }
 
 .kakao-map {
 	width: 100%;
 	height: 100%;
-	min-height: 560px;
 }
 
 .map-empty {
@@ -536,6 +742,11 @@ watch(
 	border: 1px solid #e2e8f0;
 }
 
+.map-actions {
+	margin-top: 0;
+	flex: 0 0 auto;
+}
+
 .map-overlay {
 	position: absolute;
 	left: 20px;
@@ -555,6 +766,7 @@ watch(
 	letter-spacing: 0.18em;
 	text-transform: uppercase;
 	color: #4f46e5;
+	font-family: var(--font-accent);
 }
 
 .map-overlay h2 {
@@ -569,13 +781,22 @@ watch(
 }
 
 @media (max-width: 1024px) {
+	.recommend-top-panels,
 	.recommend-shell {
 		grid-template-columns: 1fr;
 	}
 
-	.map-panel,
-	.kakao-map {
-		min-height: 440px;
+	.map-stage {
+		height: 420px;
+	}
+
+	.rank-item {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.rank-item__link {
+		align-self: flex-end;
 	}
 }
 </style>

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "data:enrich:courses": "node scripts/enrich-travel-courses.mjs",
+    "data:blogs:build": "node scripts/build-naver-blog-index.mjs"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.21",

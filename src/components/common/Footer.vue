@@ -2,9 +2,9 @@
 	<footer class="site-footer">
 		<div class="site-footer__inner">
 			<div>
-				<p class="site-footer__title">TEAM-PJT-ME</p>
+				<p class="site-footer__title">LocalHub</p>
 				<p class="site-footer__text">
-					Static common layout for the Vue migration start.
+					Meet local, fair, and fast.
 				</p>
 			</div>
 
@@ -12,6 +12,7 @@
 				<RouterLink :to="{ name: 'home' }">Home</RouterLink>
 				<RouterLink :to="{ name: 'map' }">Map</RouterLink>
 				<RouterLink :to="{ name: 'recommend' }">Recommend</RouterLink>
+				<RouterLink :to="{ name: 'favorites' }">Favorites</RouterLink>
 				<RouterLink :to="{ name: 'board' }">Board</RouterLink>
 			</div>
 		</div>
@@ -42,6 +43,7 @@
 	font-weight: 700;
 	letter-spacing: 0.08em;
 	color: var(--text-h);
+	font-family: var(--font-logo);
 }
 
 .site-footer__text {

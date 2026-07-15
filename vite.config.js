@@ -10,12 +10,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'), // path 방식 적용
     },
   },
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-    },
-  },
 })

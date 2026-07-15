@@ -5,7 +5,7 @@ import { useMapStore } from '../stores/map'
 import { useRecommendStore } from '../stores/recommend'
 import { openKakaoAddressSearch } from '../services/kakaoMap'
 import { buildTopMeetingRecommendations, loadMeetupCandidates } from '../services/recommendEngine'
-import { searchNaverBlogs } from '../services/naverBlog'
+import { BLOG_CATEGORY_OPTIONS, loadBlogIndexCategories, searchNaverBlogs } from '../services/naverBlog'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
@@ -23,16 +23,28 @@ const startLocations = computed({
 const topRecommendations = computed(() => recommendStore.recommendations)
 const calcResult = computed(() => recommendStore.selectedRecommendation)
 const bestRecommendation = computed(() => topRecommendations.value[0] || null)
+const blogSelectedPlace = computed(() => calcResult.value?.name || '')
 
 const isCalculating = ref(false)
 const calcError = ref('')
 const festivalItems = ref([])
 const festivalVisibleRange = ref({ start: '', end: '' })
 const hoveredFestivalId = ref('')
-const blogQuery = ref('서울여행')
+const blogCategoryId = ref('places')
+const blogCategories = ref(BLOG_CATEGORY_OPTIONS)
 const blogResults = ref([])
 const blogLoading = ref(false)
 const blogError = ref('')
+
+function buildBlogSearchQuery(placeName, categoryId = blogCategoryId.value) {
+	const place = String(placeName || '').trim()
+	if (!place) {
+		return ''
+	}
+
+	const categoryLabel = blogCategories.value.find((item) => item.id === categoryId)?.label || ''
+	return [place, categoryLabel].filter(Boolean).join(' ')
+}
 
 const parseFestivalDate = (value) => {
 	const text = String(value || '')
@@ -166,9 +178,9 @@ const calculateMiddlePoint = async () => {
 		(item) => item.name?.trim() && Number.isFinite(item.lat) && Number.isFinite(item.lng),
 	)
 
-	if (validStarts.length < 2) {
+	if (validStarts.length < 1) {
 		recommendStore.clearRecommendations()
-		calcError.value = '출발지는 최소 2개 이상, 주소 검색으로 좌표까지 선택해야 계산할 수 있습니다.'
+		calcError.value = '출발지는 최소 1개 이상, 주소 검색으로 좌표까지 선택해야 계산할 수 있습니다.'
 		return
 	}
 
@@ -183,7 +195,7 @@ const calculateMiddlePoint = async () => {
 
 		if (!recommendations.length) {
 			recommendStore.clearRecommendations()
-			calcError.value = '공통 후보를 찾지 못했습니다. 출발지를 다시 선택해 주세요.'
+			calcError.value = '가까운 핫플 후보를 찾지 못했습니다. 출발지를 다시 선택해 주세요.'
 			return
 		}
 
@@ -228,34 +240,41 @@ const formatBlogDate = (value) => {
 	return `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6, 8)}`
 }
 
-const loadBlogResults = async (query = blogQuery.value) => {
-	const normalizedQuery = String(query || '').trim() || '서울여행'
-	blogQuery.value = normalizedQuery
+const loadBlogResults = async (query = blogSelectedPlace.value) => {
+	const normalizedQuery = String(query || '').trim()
+	if (!normalizedQuery) {
+		blogResults.value = []
+		blogLoading.value = false
+		blogError.value = '추천 카드의 선택 버튼을 누르면 블로그 결과가 표시됩니다.'
+		return
+	}
+
 	blogLoading.value = true
 	blogError.value = ''
 
 	try {
-		const results = await searchNaverBlogs(normalizedQuery, 6)
+		const results = await searchNaverBlogs(buildBlogSearchQuery(normalizedQuery), 6, blogCategoryId.value)
 		blogResults.value = results.map(normalizeBlogItem)
 		if (!blogResults.value.length) {
-			blogError.value = '검색 결과가 없습니다.'
+			blogError.value = '선택한 장소와 분야에 맞는 검색 결과가 없습니다.'
 		}
 	} catch (error) {
 		console.error('Blog search failed:', error)
 		blogResults.value = []
-		blogError.value = '네이버 블로그 검색에 실패했습니다.'
+		blogError.value = '블로그 정보를 불러오지 못했습니다.'
 	} finally {
 		blogLoading.value = false
 	}
 }
 
-const submitBlogSearch = async () => {
-	await loadBlogResults(blogQuery.value)
+const selectBlogCategory = async (categoryId) => {
+	blogCategoryId.value = categoryId
+	await loadBlogResults(blogSelectedPlace.value)
 }
 
 const openRecommendationMap = async (recommendationId) => {
 	recommendStore.setSelectedRecommendation(recommendationId)
-	await router.push({ name: 'recommend' })
+	await router.push({ name: 'map' })
 }
 
 const loadFestivals = async () => {
@@ -269,24 +288,6 @@ const loadFestivals = async () => {
 		}
 	}
 }
-
-watch(
-	calcResult,
-	async (value) => {
-		if (!value?.name) {
-			return
-		}
-
-		await loadBlogResults(`${value.name} 여행`)
-	},
-	{ immediate: true },
-)
-
-watch(blogQuery, (value) => {
-	if (!value?.trim()) {
-		blogQuery.value = '서울여행'
-	}
-})
 
 const openKakaoCalendar = (festival) => {
 	const query = encodeURIComponent(`${festival.title || '서울 축제'} ${festival.addr1 || ''}`)
@@ -314,10 +315,26 @@ const getFestivalItemClass = (festival) => ({
 })
 
 onMounted(async () => {
+	blogCategories.value = await loadBlogIndexCategories()
 	await loadFestivals()
-	if (!blogResults.value.length) {
-		await loadBlogResults('서울여행')
-	}
+	await loadBlogResults(blogSelectedPlace.value)
+})
+
+watch(
+	calcResult,
+	async (value) => {
+		if (!value?.name) {
+			await loadBlogResults('')
+			return
+		}
+
+		await loadBlogResults(value.name)
+	},
+	{ immediate: true },
+)
+
+watch(blogCategoryId, async () => {
+	await loadBlogResults(blogSelectedPlace.value)
 })
 </script>
 
@@ -378,7 +395,7 @@ onMounted(async () => {
 					<p class="result-banner__eyebrow">연산 매칭 결과</p>
 					<h2>가장 완벽한 만남 광장은 <span>‘{{ calcResult?.name }}’</span> 입니다!</h2>
 				</div>
-				<RouterLink class="btn btn--primary" :to="{ name: 'recommend' }">상세 지도 및 근처 코스 보기</RouterLink>
+				<RouterLink class="btn btn--primary" :to="{ name: 'map' }">상세 지도 및 근처 코스 보기</RouterLink>
 			</div>
 
 			<div class="highlight-grid">
@@ -388,6 +405,10 @@ onMounted(async () => {
 					class="highlight-card recommendation-card"
 					:class="item.id === calcResult?.id ? 'recommendation-card--active' : ''"
 				>
+					<div class="recommendation-card__badge-wrap">
+						<span class="recommendation-card__badge">TOP {{ item.rank }}</span>
+						<span class="recommendation-card__metric">{{ item.totalTravelTime }}분</span>
+					</div>
 					<div class="recommendation-card__header">
 						<h3>{{ item.rank }}순위 · {{ item.name }}</h3>
 						<span>{{ item.category }} · {{ item.district }}</span>
@@ -411,17 +432,27 @@ onMounted(async () => {
 			<div class="dashboard-card dashboard-card--wide blog-card">
 				<div class="dashboard-card__header">
 					<h2>📰 네이버 블로그 추천</h2>
-					<p>기본값은 서울여행이며, 중간 지점 선택 시 목적지 + 여행으로 자동 갱신됩니다.</p>
+					<p>장소와 분야 버튼을 조합해 미리 생성한 블로그 인덱스에서 바로 보여줍니다.</p>
 				</div>
 
-				<div class="blog-search-bar">
-					<input v-model="blogQuery" type="text" class="blog-search-input" placeholder="서울여행 또는 원하는 지역 + 여행" @keyup.enter="submitBlogSearch" />
-					<button type="button" class="calculate-button" @click="submitBlogSearch">검색</button>
+				<div class="blog-filter-row">
+					<button
+						v-for="category in blogCategories"
+						:key="category.id"
+						type="button"
+						class="blog-filter-button"
+						:class="blogCategoryId === category.id ? 'blog-filter-button--active' : ''"
+						@click="selectBlogCategory(category.id)"
+					>
+						{{ category.label }}
+					</button>
 				</div>
 
 				<div class="blog-meta">
-					<span>검색어</span>
-					<strong>{{ blogQuery }}</strong>
+					<span>선택 장소</span>
+					<strong>{{ blogSelectedPlace || '추천 카드에서 선택하세요' }}</strong>
+					<span>분야</span>
+					<strong>{{ blogCategories.find((item) => item.id === blogCategoryId)?.label || '관광지' }}</strong>
 				</div>
 
 				<div v-if="blogError" class="blog-empty">{{ blogError }}</div>
@@ -430,8 +461,10 @@ onMounted(async () => {
 				<div v-else class="blog-grid">
 					<a v-for="item in blogResults" :key="item.link" class="blog-card-item" :href="item.link" target="_blank" rel="noopener noreferrer">
 						<div class="blog-card-item__eyebrow">{{ item.bloggername || 'Naver Blog' }} · {{ formatBlogDate(item.postdate) }}</div>
-						<h3 v-html="item.title"></h3>
-						<p v-html="item.description"></p>
+						<div class="blog-card-item__body">
+							<h3 v-html="item.title"></h3>
+							<p v-html="item.description"></p>
+						</div>
 					</a>
 				</div>
 			</div>
@@ -516,11 +549,12 @@ onMounted(async () => {
 
 .hero-banner__eyebrow,
 .result-banner__eyebrow {
-	font-size: 0.8rem;
+	font-size: 0.92rem;
 	font-weight: 800;
 	letter-spacing: 0.18em;
 	text-transform: uppercase;
 	color: #4f46e5;
+	font-family: var(--font-accent);
 }
 
 .hero-input-card {
@@ -717,8 +751,9 @@ onMounted(async () => {
 
 .result-banner h2 {
 	margin: 6px 0 0;
-	font-size: 1.15rem;
+	font-size: 1.28rem;
 	color: #0f172a;
+	font-family: var(--font-accent);
 }
 
 .result-banner span {
@@ -741,19 +776,49 @@ onMounted(async () => {
 
 .highlight-card h3 {
 	margin: 0;
-	font-size: 1.05rem;
+	font-size: 1.22rem;
 	color: #0f172a;
+	font-family: var(--font-accent);
 }
 
 .recommendation-card {
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
+	position: relative;
+	overflow: hidden;
 }
 
 .recommendation-card--active {
 	border-color: #4f46e5;
 	box-shadow: 0 12px 22px rgba(79, 70, 229, 0.15);
+}
+
+.recommendation-card__badge-wrap {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 10px;
+}
+
+.recommendation-card__badge,
+.recommendation-card__metric {
+	display: inline-flex;
+	align-items: center;
+	padding: 6px 10px;
+	border-radius: 999px;
+	font-size: 0.78rem;
+	font-weight: 800;
+}
+
+.recommendation-card__badge {
+	background: #eef2ff;
+	color: #4338ca;
+}
+
+.recommendation-card__metric {
+	background: #f8fafc;
+	color: #475569;
 }
 
 .recommendation-card__header {
@@ -763,14 +828,18 @@ onMounted(async () => {
 	gap: 8px;
 }
 
+.recommendation-card__header h3 {
+	line-height: 1.3;
+}
+
 .recommendation-card__header span {
-	font-size: 0.8rem;
+	font-size: 0.88rem;
 	color: #64748b;
 }
 
 .recommendation-card__summary {
 	margin: 0;
-	font-size: 0.9rem;
+	font-size: 0.94rem;
 	color: #475569;
 }
 
@@ -778,13 +847,17 @@ onMounted(async () => {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
+	margin-top: 2px;
+	padding-top: 10px;
+	border-top: 1px solid #edf2f7;
 }
 
 .mini-list p {
 	margin: 0;
-	font-size: 0.95rem;
+	font-size: 1.02rem;
 	font-weight: 700;
 	color: #334155;
+	font-family: var(--font-accent);
 }
 
 .mini-list span {
@@ -822,8 +895,9 @@ onMounted(async () => {
 
 .dashboard-card__header h2 {
 	margin: 0;
-	font-size: 1.15rem;
+	font-size: 1.28rem;
 	color: #0f172a;
+	font-family: var(--font-accent);
 }
 
 .dashboard-card__header p {
@@ -836,6 +910,41 @@ onMounted(async () => {
 	gap: 10px;
 	align-items: center;
 	margin-bottom: 12px;
+}
+
+.blog-filter-row,
+.blog-place-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.blog-filter-button,
+.blog-place-button {
+	border: 1px solid #dbe3ee;
+	background: #f8fafc;
+	color: #334155;
+	padding: 9px 12px;
+	border-radius: 999px;
+	font: inherit;
+	font-size: 0.88rem;
+	font-weight: 700;
+	cursor: pointer;
+	transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.blog-filter-button:hover,
+.blog-place-button:hover {
+	transform: translateY(-1px);
+	border-color: #cbd5e1;
+	box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.blog-filter-button--active {
+	background: #4f46e5;
+	border-color: #4f46e5;
+	color: #fff;
 }
 
 .blog-search-input {
@@ -888,16 +997,26 @@ onMounted(async () => {
 }
 
 .blog-card-item__eyebrow {
-	font-size: 0.78rem;
+	font-size: 0.88rem;
 	font-weight: 700;
 	color: #4f46e5;
+	font-family: var(--font-accent);
+}
+
+.blog-card-item__body {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-top: 10px;
+	border-top: 1px solid #e2e8f0;
 }
 
 .blog-card-item h3 {
 	margin: 0;
-	font-size: 1rem;
+	font-size: 1.08rem;
 	line-height: 1.45;
 	color: #0f172a;
+	font-family: var(--font-accent);
 }
 
 .blog-card-item p {
@@ -972,6 +1091,14 @@ onMounted(async () => {
 	vertical-align: middle;
 	font-size: 0.76rem;
 	font-weight: 700;
+}
+
+.festival-list {
+	max-height: 300px;
+	overflow-y: auto;
+	padding-right: 4px;
+	display: grid;
+	gap: 10px;
 }
 
 .chart-area {

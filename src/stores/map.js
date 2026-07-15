@@ -43,7 +43,7 @@ export const useMapStore = defineStore('map', {
       })
     },
     removeLocation(index) {
-      if (this.startLocations.length > 2) {
+      if (this.startLocations.length > 1) {
         this.startLocations.splice(index, 1)
       }
     },

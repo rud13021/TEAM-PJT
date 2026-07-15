@@ -1,13 +1,40 @@
+@font-face {
+  font-family: 'Sweet';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2304-2@1.0/SUITE-Light.woff2') format('woff2');
+  font-weight: 300;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Juache';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_one@1.0/BMJUA.woff') format('woff');
+  font-weight: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SchoolSafetyPuzzleOutline';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-5@1.0/HakgyoansimPuzzleTTF-Outline.woff2') format('woff2');
+  font-weight: normal;
+  font-display: swap;
+}
+
 :root {
-  --text: #475569;
-  --text-h: #0f172a;
-  --bg: #f8fafc;
-  --border: #e2e8f0;
-  --accent: #4f46e5;
-  --accent-bg: rgba(79, 70, 229, 0.12);
-  --accent-border: rgba(79, 70, 229, 0.3);
+  --font-body: 'Sweet', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
+  --font-accent: 'Juache', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
+  --font-logo: 'SchoolSafetyPuzzleOutline', 'Noto Sans KR', 'Segoe UI', system-ui, sans-serif;
+  --text: #46556a;
+  --text-h: #142031;
+  --bg: #f7fbff;
+  --border: #dbe6f2;
+  --accent: #2563eb;
+  --accent-2: #0ea5e9;
+  --accent-3: #14b8a6;
+  --warm: #f97316;
+  --accent-bg: rgba(37, 99, 235, 0.12);
+  --accent-border: rgba(37, 99, 235, 0.28);
   --shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
-  font-family: 'Inter', 'Noto Sans KR', system-ui, sans-serif;
+  font-family: var(--font-body);
   line-height: 1.5;
   font-weight: 400;
   color: var(--text);
@@ -31,7 +58,11 @@ body,
 
 body {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  font-family: var(--font-body);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(14, 165, 233, 0.16), transparent 34%),
+    radial-gradient(circle at 92% 16%, rgba(20, 184, 166, 0.14), transparent 38%),
+    linear-gradient(180deg, #f7fbff 0%, #eef5ff 60%, #f4f8ff 100%);
   color: var(--text);
 }
 
