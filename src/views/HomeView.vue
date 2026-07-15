@@ -1,11 +1,15 @@
 <script setup>
 import { RouterLink, useRouter } from 'vue-router'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useMapStore } from '../stores/map'
 import { useRecommendStore } from '../stores/recommend'
 import { openKakaoAddressSearch } from '../services/kakaoMap'
 import { buildTopMeetingRecommendations, loadMeetupCandidates } from '../services/recommendEngine'
-import Chart from 'chart.js/auto'
+import { searchNaverBlogs } from '../services/naverBlog'
+import FullCalendar from '@fullcalendar/vue3'
+import dayGridPlugin from '@fullcalendar/daygrid'
+import interactionPlugin from '@fullcalendar/interaction'
+import koLocale from '@fullcalendar/core/locales/ko'
 
 const mapStore = useMapStore()
 const recommendStore = useRecommendStore()
@@ -22,10 +26,94 @@ const bestRecommendation = computed(() => topRecommendations.value[0] || null)
 
 const isCalculating = ref(false)
 const calcError = ref('')
-const chartCanvas = ref(null)
-let chartInstance = null
-const chartSeries = ref([])
 const festivalItems = ref([])
+const festivalVisibleRange = ref({ start: '', end: '' })
+const hoveredFestivalId = ref('')
+const blogQuery = ref('서울여행')
+const blogResults = ref([])
+const blogLoading = ref(false)
+const blogError = ref('')
+
+const parseFestivalDate = (value) => {
+	const text = String(value || '')
+	if (text.length !== 8) {
+		return ''
+	}
+
+	return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`
+}
+
+const getFestivalStartDate = (festival) => parseFestivalDate(festival.eventstartdate || festival.createdtime || festival.modifiedtime)
+
+const getFestivalEndDate = (festival) => parseFestivalDate(festival.eventenddate || festival.eventstartdate || festival.createdtime || festival.modifiedtime)
+
+const buildFestivalSearchUrl = (festival) => {
+	const query = encodeURIComponent(festival.title || '서울 축제')
+	return `https://search.naver.com/search.naver?query=${query}`
+}
+
+const normalizeFestival = (festival, index) => ({
+	...festival,
+	id: festival.contentid || `${festival.title}-${index}`,
+	startDate: getFestivalStartDate(festival),
+	endDate: getFestivalEndDate(festival),
+	naverSearchUrl: buildFestivalSearchUrl(festival),
+})
+
+const isFestivalVisibleInRange = (festival, range) => {
+	if (!festival.startDate || !festival.endDate || !range.start || !range.end) {
+		return false
+	}
+
+	return festival.startDate < range.end && festival.endDate >= range.start
+}
+
+const visibleFestivalItems = computed(() => {
+	return festivalItems.value
+		.filter((festival) => isFestivalVisibleInRange(festival, festivalVisibleRange.value))
+		.sort((left, right) => left.startDate.localeCompare(right.startDate) || left.title.localeCompare(right.title))
+})
+
+const festivalCalendarOptions = computed(() => ({
+	plugins: [dayGridPlugin, interactionPlugin],
+	initialView: 'dayGridMonth',
+	locale: koLocale,
+	headerToolbar: {
+		left: 'prev,next today',
+		center: 'title',
+		right: '',
+	},
+	height: 'auto',
+	fixedWeekCount: false,
+	dayMaxEvents: 2,
+	events: festivalItems.value.map((festival, index) => ({
+		id: festival.id,
+		title: festival.title,
+		start: festival.startDate || toFestivalCalendarDate(festival, index),
+		end: festival.endDate || festival.startDate || toFestivalCalendarDate(festival, index),
+		backgroundColor: index % 3 === 0 ? '#4f46e5' : index % 3 === 1 ? '#10b981' : '#f59e0b',
+		borderColor: 'transparent',
+		textColor: '#fff',
+	})),
+	eventContent: (eventInfo) => ({
+		html: `<span class="festival-event-badge" aria-hidden="true"></span><span class="festival-event-label">${eventInfo.event.title}</span>`,
+	}),
+	eventMouseEnter: (eventInfo) => {
+		hoveredFestivalId.value = eventInfo.event.id
+	},
+	eventMouseLeave: () => {
+		hoveredFestivalId.value = ''
+	},
+	datesSet: (dateInfo) => {
+		festivalVisibleRange.value = {
+			start: dateInfo.startStr,
+			end: dateInfo.endStr,
+		}
+	},
+	buttonText: {
+		today: '오늘',
+	},
+}))
 
 const ctaCards = [
 	{ title: '1. 다차원 정밀 계산', text: '대중교통 환승 시간과 이동 거리의 균형을 반영해 최적 약속 지점을 산출합니다.' },
@@ -44,15 +132,33 @@ const removeStartLocation = (index) => {
 }
 
 const openAddressSearch = async (index) => {
-	const selectedAddress = await openKakaoAddressSearch()
-	if (!selectedAddress || selectedAddress.dismissed) return
+	try {
+		const selectedAddress = await openKakaoAddressSearch()
+		if (!selectedAddress || selectedAddress.dismissed) return
 
-	mapStore.updateLocation(index, {
-		name: selectedAddress.buildingName || selectedAddress.roadAddress || selectedAddress.jibunAddress || '선택된 주소',
-		address: selectedAddress.fullAddress || selectedAddress.roadAddress || selectedAddress.jibunAddress || '',
-		lat: selectedAddress.lat ?? null,
-		lng: selectedAddress.lng ?? null,
-	})
+		const name = selectedAddress.buildingName || selectedAddress.roadAddress || selectedAddress.jibunAddress || '선택된 주소'
+		const address = selectedAddress.fullAddress || selectedAddress.roadAddress || selectedAddress.jibunAddress || ''
+
+		mapStore.updateLocation(index, {
+			name,
+			address,
+			lat: selectedAddress.lat ?? null,
+			lng: selectedAddress.lng ?? null,
+		})
+
+		if (!Number.isFinite(selectedAddress.lat) || !Number.isFinite(selectedAddress.lng)) {
+			calcError.value = `주소는 반영되었지만 좌표 변환에 실패했습니다. (${selectedAddress.status || 'UNKNOWN'})`
+			console.warn('Address selected without coordinates:', selectedAddress)
+		} else {
+			if (calcError.value.includes('좌표 변환')) {
+				calcError.value = ''
+			}
+			console.debug('Address selected:', selectedAddress)
+		}
+	} catch (error) {
+		console.error('Address search failed:', error)
+		calcError.value = '주소 검색 중 오류가 발생했습니다. 팝업 차단 또는 카카오 키 설정을 확인해 주세요.'
+	}
 }
 
 const calculateMiddlePoint = async () => {
@@ -72,13 +178,12 @@ const calculateMiddlePoint = async () => {
 	try {
 		const candidates = await loadMeetupCandidates()
 		const recommendations = await buildTopMeetingRecommendations(validStarts, candidates, {
-			maxTravelMinutes: 45,
 			topN: 3,
 		})
 
 		if (!recommendations.length) {
 			recommendStore.clearRecommendations()
-			calcError.value = '45분 이내로 도착 가능한 공통 후보를 찾지 못했습니다. 출발지를 다시 선택해 주세요.'
+			calcError.value = '공통 후보를 찾지 못했습니다. 출발지를 다시 선택해 주세요.'
 			return
 		}
 
@@ -96,91 +201,123 @@ const selectRecommendation = (recommendationId) => {
 	recommendStore.setSelectedRecommendation(recommendationId)
 }
 
+const toFestivalCalendarDate = (festival, index = 0) => {
+	const timestamp = String(festival.createdtime || festival.modifiedtime || '')
+	if (timestamp.length >= 8) {
+		return `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}`
+	}
+
+	const date = new Date()
+	date.setDate(date.getDate() + index)
+	return date.toISOString().slice(0, 10)
+}
+
+const normalizeBlogItem = (item) => ({
+	title: item.title,
+	description: item.description,
+	bloggername: item.bloggername,
+	link: item.link,
+	bloggerlink: item.bloggerlink,
+	postdate: item.postdate,
+})
+
+const formatBlogDate = (value) => {
+	if (!value || value.length !== 8) {
+		return ''
+	}
+	return `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6, 8)}`
+}
+
+const loadBlogResults = async (query = blogQuery.value) => {
+	const normalizedQuery = String(query || '').trim() || '서울여행'
+	blogQuery.value = normalizedQuery
+	blogLoading.value = true
+	blogError.value = ''
+
+	try {
+		const results = await searchNaverBlogs(normalizedQuery, 6)
+		blogResults.value = results.map(normalizeBlogItem)
+		if (!blogResults.value.length) {
+			blogError.value = '검색 결과가 없습니다.'
+		}
+	} catch (error) {
+		console.error('Blog search failed:', error)
+		blogResults.value = []
+		blogError.value = '네이버 블로그 검색에 실패했습니다.'
+	} finally {
+		blogLoading.value = false
+	}
+}
+
+const submitBlogSearch = async () => {
+	await loadBlogResults(blogQuery.value)
+}
+
 const openRecommendationMap = async (recommendationId) => {
 	recommendStore.setSelectedRecommendation(recommendationId)
 	await router.push({ name: 'recommend' })
 }
 
-const renderChart = () => {
-	if (!chartCanvas.value) return
-	if (chartInstance) {
-		chartInstance.destroy()
-	}
-
-	chartInstance = new Chart(chartCanvas.value, {
-		type: 'bar',
-		data: {
-			labels: chartSeries.value.map((item) => item.label),
-			datasets: [
-				{
-					label: '총 데이터 수',
-					data: chartSeries.value.map((item) => item.count),
-					backgroundColor: ['#4f46e5', '#6366f1', '#ec4899', '#10b981', '#f59e0b', '#0ea5e9', '#8b5cf6'],
-					borderRadius: 8,
-				},
-			],
-		},
-		options: {
-			responsive: true,
-			maintainAspectRatio: false,
-			plugins: {
-				legend: { display: false },
-			},
-			scales: {
-				y: {
-					beginAtZero: true,
-					grid: { color: '#f1f5f9' },
-					ticks: { color: '#64748b' },
-				},
-				x: {
-					grid: { display: false },
-					ticks: { color: '#64748b' },
-				},
-			},
-		},
-	})
-}
-
-const loadDashboardData = async () => {
-	const files = [
-		{ label: '관광지', path: '/data/서울_관광지.json' },
-		{ label: '문화시설', path: '/data/서울_문화시설.json' },
-		{ label: '레포츠', path: '/data/서울_레포츠.json' },
-		{ label: '쇼핑', path: '/data/서울_쇼핑.json' },
-		{ label: '숙박', path: '/data/서울_숙박.json' },
-		{ label: '여행코스', path: '/data/서울_여행코스.json' },
-		{ label: '축제공연행사', path: '/data/서울_축제공연행사.json' },
-	]
-
-	const results = await Promise.all(
-		files.map(async (file) => {
-			const response = await fetch(file.path)
-			const data = await response.json()
-			return {
-				label: file.label,
-				count: Number(data.total ?? data.items?.length ?? 0),
-			}
-		}),
-	)
-
-	chartSeries.value = results
-	nextTick(() => renderChart())
-}
-
 const loadFestivals = async () => {
 	const response = await fetch('/data/서울_축제공연행사.json')
 	const data = await response.json()
-	festivalItems.value = (data.items || []).slice(0, 6)
+	festivalItems.value = (data.items || []).map(normalizeFestival)
+	if (!festivalVisibleRange.value.start) {
+		festivalVisibleRange.value = {
+			start: new Date().toISOString().slice(0, 10),
+			end: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().slice(0, 10),
+		}
+	}
 }
+
+watch(
+	calcResult,
+	async (value) => {
+		if (!value?.name) {
+			return
+		}
+
+		await loadBlogResults(`${value.name} 여행`)
+	},
+	{ immediate: true },
+)
+
+watch(blogQuery, (value) => {
+	if (!value?.trim()) {
+		blogQuery.value = '서울여행'
+	}
+})
 
 const openKakaoCalendar = (festival) => {
 	const query = encodeURIComponent(`${festival.title || '서울 축제'} ${festival.addr1 || ''}`)
 	window.open(`https://calendar.kakao.com/?q=${query}`, '_blank', 'noopener,noreferrer')
 }
 
+const openFestivalNaverSearch = (festival) => {
+	window.location.href = festival.naverSearchUrl || buildFestivalSearchUrl(festival)
+}
+
+const formatFestivalPeriod = (festival) => {
+	if (!festival.startDate) {
+		return festival.addr1 || '서울 지역 축제'
+	}
+
+	if (festival.startDate === festival.endDate) {
+		return festival.startDate
+	}
+
+	return `${festival.startDate} ~ ${festival.endDate}`
+}
+
+const getFestivalItemClass = (festival) => ({
+	'festival-item--active': hoveredFestivalId.value === festival.id,
+})
+
 onMounted(async () => {
-	await loadDashboardData()
 	await loadFestivals()
+	if (!blogResults.value.length) {
+		await loadBlogResults('서울여행')
+	}
 })
 </script>
 
@@ -271,28 +408,57 @@ onMounted(async () => {
 		</section>
 
 		<section class="dashboard-section">
-			<div class="dashboard-card dashboard-card--wide">
+			<div class="dashboard-card dashboard-card--wide blog-card">
 				<div class="dashboard-card__header">
-					<h2>📊 서울 주요 거점 관광 지표</h2>
-					<p>지역별 공공 데이터 카테고리 밀도 분석을 한눈에 확인하세요.</p>
+					<h2>📰 네이버 블로그 추천</h2>
+					<p>기본값은 서울여행이며, 중간 지점 선택 시 목적지 + 여행으로 자동 갱신됩니다.</p>
 				</div>
-				<div class="chart-area">
-					<canvas ref="chartCanvas"></canvas>
+
+				<div class="blog-search-bar">
+					<input v-model="blogQuery" type="text" class="blog-search-input" placeholder="서울여행 또는 원하는 지역 + 여행" @keyup.enter="submitBlogSearch" />
+					<button type="button" class="calculate-button" @click="submitBlogSearch">검색</button>
+				</div>
+
+				<div class="blog-meta">
+					<span>검색어</span>
+					<strong>{{ blogQuery }}</strong>
+				</div>
+
+				<div v-if="blogError" class="blog-empty">{{ blogError }}</div>
+				<div v-else-if="blogLoading" class="blog-empty">블로그 검색 중...</div>
+
+				<div v-else class="blog-grid">
+					<a v-for="item in blogResults" :key="item.link" class="blog-card-item" :href="item.link" target="_blank" rel="noopener noreferrer">
+						<div class="blog-card-item__eyebrow">{{ item.bloggername || 'Naver Blog' }} · {{ formatBlogDate(item.postdate) }}</div>
+						<h3 v-html="item.title"></h3>
+						<p v-html="item.description"></p>
+					</a>
 				</div>
 			</div>
 
 			<div class="dashboard-card">
 				<div class="dashboard-card__header">
 					<h2>🗓️ 축제 캘린더</h2>
-					<p>서울 주요 이벤트 및 전시 일정.</p>
+					<p>서울 축제공연행사 데이터를 캘린더와 리스트로 함께 확인하세요.</p>
+				</div>
+				<div class="festival-calendar-wrap">
+					<FullCalendar :options="festivalCalendarOptions" />
 				</div>
 				<div class="festival-list">
-					<div v-for="festival in festivalItems" :key="festival.contentid" class="festival-item">
+					<div v-if="!visibleFestivalItems.length" class="festival-empty">현재 달에 표시할 축제가 없습니다.</div>
+					<div
+						v-for="festival in visibleFestivalItems"
+						:key="festival.id"
+						class="festival-item"
+						:class="getFestivalItemClass(festival)"
+					>
 						<div>
-							<strong>{{ festival.title }}</strong>
-							<span>{{ festival.addr1 || '서울 지역 축제' }}</span>
+							<button type="button" class="festival-name-button" @click="openFestivalNaverSearch(festival)">{{ festival.title }}</button>
+							<span>{{ formatFestivalPeriod(festival) }}</span>
 						</div>
-						<button type="button" class="search-button" @click="openKakaoCalendar(festival)">카카오톡 캘린더</button>
+						<div class="festival-item__meta">
+							<small>{{ festival.eventplace || festival.addr1 || '서울 지역 축제' }}</small>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -665,6 +831,149 @@ onMounted(async () => {
 	color: #64748b;
 }
 
+.blog-search-bar {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	margin-bottom: 12px;
+}
+
+.blog-search-input {
+	flex: 1;
+	min-width: 0;
+	min-height: 48px;
+	padding: 0 14px;
+	border-radius: 14px;
+	border: 1px solid #dbe3ee;
+	background: #f8fafc;
+	font: inherit;
+	color: #0f172a;
+}
+
+.blog-meta {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 14px;
+	font-size: 0.88rem;
+	color: #64748b;
+}
+
+.blog-meta strong {
+	color: #0f172a;
+}
+
+.blog-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.blog-card-item {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 16px;
+	border-radius: 18px;
+	background: #f8fafc;
+	border: 1px solid #e2e8f0;
+	text-decoration: none;
+	color: inherit;
+	transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.blog-card-item:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+.blog-card-item__eyebrow {
+	font-size: 0.78rem;
+	font-weight: 700;
+	color: #4f46e5;
+}
+
+.blog-card-item h3 {
+	margin: 0;
+	font-size: 1rem;
+	line-height: 1.45;
+	color: #0f172a;
+}
+
+.blog-card-item p {
+	margin: 0;
+	font-size: 0.88rem;
+	line-height: 1.6;
+	color: #64748b;
+}
+
+.blog-empty {
+	padding: 18px;
+	border-radius: 16px;
+	background: #f8fafc;
+	color: #64748b;
+	font-size: 0.92rem;
+}
+
+.festival-calendar-wrap {
+	margin-bottom: 14px;
+	padding: 12px;
+	border-radius: 18px;
+	background: #f8fafc;
+	border: 1px solid #e2e8f0;
+}
+
+.festival-calendar-wrap :deep(.fc) {
+	font-family: inherit;
+	color: #0f172a;
+}
+
+.festival-calendar-wrap :deep(.fc .fc-toolbar-title) {
+	font-size: 1rem;
+	font-weight: 800;
+	color: #0f172a;
+}
+
+.festival-calendar-wrap :deep(.fc .fc-button-primary) {
+	background: #eef2ff;
+	border-color: transparent;
+	color: #4338ca;
+	box-shadow: none;
+}
+
+.festival-calendar-wrap :deep(.fc .fc-button-primary:not(:disabled).fc-button-active),
+.festival-calendar-wrap :deep(.fc .fc-button-primary:not(:disabled):active) {
+	background: #4f46e5;
+	color: #fff;
+}
+
+.festival-calendar-wrap :deep(.fc .fc-daygrid-day-number) {
+	color: #334155;
+	font-size: 0.82rem;
+}
+
+.festival-calendar-wrap :deep(.fc .fc-event) {
+	border-radius: 10px;
+	padding: 2px 6px;
+	border: none;
+}
+
+.festival-calendar-wrap :deep(.festival-event-badge) {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	margin-right: 6px;
+	border-radius: 999px;
+	background: currentColor;
+	vertical-align: middle;
+}
+
+.festival-calendar-wrap :deep(.festival-event-label) {
+	vertical-align: middle;
+	font-size: 0.76rem;
+	font-weight: 700;
+}
+
 .chart-area {
 	position: relative;
 	height: 240px;
@@ -678,6 +987,25 @@ onMounted(async () => {
 	padding: 12px 14px;
 	border-radius: 14px;
 	background: #f8fafc;
+	border: 1px solid transparent;
+	transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.festival-item--active {
+	border-color: #4f46e5;
+	background: #eef2ff;
+	transform: translateY(-1px);
+}
+
+.festival-name-button {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: #0f172a;
+	font: inherit;
+	font-weight: 800;
+	cursor: pointer;
+	text-align: left;
 }
 
 .festival-item strong {
@@ -689,6 +1017,24 @@ onMounted(async () => {
 .festival-item span {
 	color: #64748b;
 	font-size: 0.84rem;
+}
+
+.festival-item__meta {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	justify-content: center;
+	min-width: 0;
+	color: #64748b;
+	font-size: 0.78rem;
+}
+
+.festival-empty {
+	padding: 16px;
+	border-radius: 14px;
+	background: #f8fafc;
+	color: #64748b;
+	font-size: 0.9rem;
 }
 
 .cta-section {

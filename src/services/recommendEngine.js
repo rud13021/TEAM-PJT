@@ -192,7 +192,7 @@ export async function loadMeetupCandidates() {
 }
 
 export async function buildTopMeetingRecommendations(startLocations, candidates = [], options = {}) {
-	const { maxTravelMinutes = 45, topN = 3, candidateLimit = 25 } = options
+	const { maxTravelMinutes = Number.POSITIVE_INFINITY, topN = 3, candidateLimit = 25 } = options
 
 	const validStarts = (Array.isArray(startLocations) ? startLocations : [])
 		.map((location, index) => {
@@ -255,7 +255,7 @@ export async function buildTopMeetingRecommendations(startLocations, candidates 
 		const durations = validRoutes.map((route) => route.durationMinutes)
 		const slowest = Math.max(...durations)
 		const fastest = Math.min(...durations)
-		if (slowest >= maxTravelMinutes) {
+		if (Number.isFinite(maxTravelMinutes) && slowest >= maxTravelMinutes) {
 			continue
 		}
 
