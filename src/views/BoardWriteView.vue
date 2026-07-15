@@ -1,14 +1,19 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import BoardForm from '@/components/board/BoardForm.vue'
 
+const route = useRoute()
 const router = useRouter()
-const title = ref('')
-const content = ref('')
-const author = ref('')
 
-function submitPost() {
-	if (!title.value.trim() || !content.value.trim() || !author.value.trim()) return
+function onCreated(post) {
+	router.push({ name: 'board' })
+}
+
+function onUpdated(post) {
+	router.push({ name: 'board-detail', params: { id: post.id } })
+}
+
+function onCancel() {
 	router.push({ name: 'board' })
 }
 </script>
@@ -19,25 +24,8 @@ function submitPost() {
 			<p class="board-eyebrow">게시글 작성</p>
 			<h1>익명으로 후기와 추천을 남겨보세요</h1>
 
-			<div class="form-group">
-				<label>제목</label>
-				<input v-model="title" type="text" placeholder="예: 성수동 팝업 후기" />
-			</div>
+			<BoardForm :mode="route.query.id ? 'edit' : 'create'" :postId="route.query.id" @created="onCreated" @updated="onUpdated" @cancel="onCancel" />
 
-			<div class="form-group">
-				<label>내용</label>
-				<textarea v-model="content" rows="7" placeholder="후기나 추천 이유를 적어주세요"></textarea>
-			</div>
-
-			<div class="form-group">
-				<label>작성자</label>
-				<input v-model="author" type="text" placeholder="닉네임" />
-			</div>
-
-			<div class="actions">
-				<RouterLink class="secondary-btn" :to="{ name: 'board' }">목록으로</RouterLink>
-				<button class="primary-btn" @click="submitPost">등록하기</button>
-			</div>
 		</section>
 	</main>
 </template>

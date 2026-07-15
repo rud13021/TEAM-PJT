@@ -1,18 +1,16 @@
 <script setup>
-const posts = [
-	{
-		id: 1,
-		title: '을지로4가역에서 저녁 약속하기 좋은 곳',
-		meta: '맛집공유 · 12분 전 · 익명',
-		content: '대중교통 환승이 편하고, 한강까지 가기 쉬워서 모임 장소로 좋더라고요.',
-	},
-	{
-		id: 2,
-		title: '성수동 팝업 스팟 같이 가실 분',
-		meta: '사진후기 · 1시간 전 · 익명',
-		content: '주말에 가면 분위기 좋은 곳이 많아서 데이트 코스로 추천합니다.',
-	},
-]
+import { useRouter } from 'vue-router'
+import BoardList from '@/components/board/BoardList.vue'
+
+const router = useRouter()
+
+function onView(id) {
+	router.push({ name: 'board-detail', params: { id } })
+}
+
+function onCreate() {
+	router.push({ name: 'board-write' })
+}
 </script>
 
 <template>
@@ -23,15 +21,11 @@ const posts = [
 					<p class="board-eyebrow">후기 커뮤니티</p>
 					<h1>다른 사람들의 후기와 추천을 확인해보세요</h1>
 				</div>
-				<RouterLink class="write-btn" :to="{ name: 'board-write' }">글쓰기</RouterLink>
+				<button class="write-btn" @click="onCreate">글쓰기</button>
 			</div>
 
 			<div class="post-list">
-				<RouterLink v-for="post in posts" :key="post.id" class="post-card" :to="{ name: 'board-detail', params: { id: post.id } }">
-					<p class="post-meta">{{ post.meta }}</p>
-					<h2>{{ post.title }}</h2>
-					<p class="post-content">{{ post.content }}</p>
-				</RouterLink>
+				<BoardList @view="onView" @create="onCreate" @deleted="() => {}" />
 			</div>
 		</section>
 	</main>
