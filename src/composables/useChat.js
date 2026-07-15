@@ -1,8 +1,7 @@
 // src/composables/useChat.js
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { createChatDirect } from '@/services/openai'
 import { answerFromLocalData } from '@/services/localQA'
-import { getRecommendations } from '@/services/recommend'
 
 function makeId() { return Math.random().toString(36).slice(2,9) }
 
@@ -13,13 +12,13 @@ export function useChat() {
   let abortController = null
 
   function pushUser(text) {
-    const m = { id: makeId(), role: 'user', content: text }
+    const m = reactive({ id: makeId(), role: 'user', content: text })
     messages.value.push(m)
     return m
   }
 
   function pushAssistantPlaceholder() {
-    const m = { id: makeId(), role: 'assistant', content: '' }
+    const m = reactive({ id: makeId(), role: 'assistant', content: '' })
     messages.value.push(m)
     return m
   }
@@ -31,42 +30,30 @@ export function useChat() {
     pushUser(text)
 
     if (qaMode) {
-      // Directly stream from OpenAI using streamChat
+      // Use direct response mode for stability in QA flow.
       const assistantMsg = pushAssistantPlaceholder()
       streaming.value = true
       abortController = new AbortController()
-      const onData = (chunk) => {
-        assistantMsg.content += chunk
-      }
-      const onDone = () => {
-        streaming.value = false
-        abortController = null
-      }
-      const onError = (e) => {
-        error.value = e?.message || String(e)
-        streaming.value = false
-        abortController = null
-      }
 
       try {
-          // First get server-side recommendations (nearest places) based on optional coordinates in the query
-          // For simplicity, here we don't parse coords from text; you can pass center via options later.
-          const recs = await getRecommendations(text, { topK: 5, lat: center?.lat, lon: center?.lon })
-          console.log('[useChat] server recommendations:', recs)
-
-          // Build prompt including server recommendations and stream via localQA
-          const context = recs.map((it, i) => `${i+1}. [${it.__dataset}] ${it.name ?? it.title ?? ''} (${Math.round(it.__dist || 0)}m) - ${it.addr ?? ''}`).join('\n')
-          const augmentedQuery = `${text}\n\n참고 데이터:\n${context}`
-          await answerFromLocalData(augmentedQuery, {
+          const answer = await answerFromLocalData(text, {
             topK: 5,
-            stream: true,
-            onData,
-            onDone,
-            onError,
+            center,
+            stream: false,
             signal: abortController.signal,
           })
+          assistantMsg.content = (answer || '').trim() || '응답을 생성하지 못했습니다. 다시 시도해 주세요.'
+          streaming.value = false
+          abortController = null
       } catch (e) {
-        if (e.name !== 'AbortError') onError(e)
+        if (e.name !== 'AbortError') {
+          error.value = e?.message || String(e)
+          if (!assistantMsg.content.trim()) {
+            assistantMsg.content = '요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'
+          }
+        }
+        streaming.value = false
+        abortController = null
       }
     } else {
       // 일반 채팅 (예: Direct OpenAI 호출)

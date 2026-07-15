@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useChat } from '@/composables/useChat'
 
-const { messages, sendMessage, streaming } = useChat()
+const { messages, sendMessage, streaming, error } = useChat()
 
 const chatInput = ref('')
 
@@ -46,6 +46,10 @@ function triggerPrompt(prompt) {
       </div>
 
       <div class="chat-window">
+        <div v-if="error" class="chat-error">
+          {{ error }}
+        </div>
+
         <div
           v-for="(message, index) in messages"
           :key="message.id ?? index"
@@ -163,6 +167,15 @@ function triggerPrompt(prompt) {
   font-size: 0.95rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.chat-error {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #9f1239;
+  font-size: 0.9rem;
 }
 
 .chat-bubble--bot {

@@ -2,8 +2,32 @@
 
 const OPENAI_BASE = 'https://api.openai.com/v1'
 const API_KEY = import.meta.env.VITE_OPENAI_API_KEY
-const MODEL = import.meta.env.VITE_OPENAI_MODEL || 'gpt-4o-mini'
-const TEMPERATURE = Number(import.meta.env.VITE_OPENAI_TEMPERATURE ?? 0.7)
+const MODEL = import.meta.env.VITE_OPENAI_MODEL || 'gpt-5-mini'
+const TEMPERATURE_ENV = import.meta.env.VITE_OPENAI_TEMPERATURE
+
+function buildRequestBody({ message, history = [], stream = false }) {
+  const body = {
+    model: MODEL,
+    ...(stream && { stream: true }),
+    messages: [
+      ...history,
+      {
+        role: 'user',
+        content: message,
+      },
+    ],
+  }
+
+  // gpt-5-mini currently accepts only default temperature behavior.
+  if (TEMPERATURE_ENV != null && !String(MODEL).startsWith('gpt-5')) {
+    const parsed = Number(TEMPERATURE_ENV)
+    if (Number.isFinite(parsed)) {
+      body.temperature = parsed
+    }
+  }
+
+  return body
+}
 
 function getHeaders(stream = false) {
   if (!API_KEY) {
@@ -17,21 +41,31 @@ function getHeaders(stream = false) {
   }
 }
 
+function extractTextContent(content) {
+  if (!content) return ''
+  if (typeof content === 'string') return content
+
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === 'string') return part
+        return part?.text ?? ''
+      })
+      .join('')
+  }
+
+  if (typeof content === 'object') {
+    return content.text ?? ''
+  }
+
+  return ''
+}
+
 export async function createChatDirect(message, history = []) {
   const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: TEMPERATURE,
-      messages: [
-        ...history,
-        {
-          role: 'user',
-          content: message,
-        },
-      ],
-    }),
+    body: JSON.stringify(buildRequestBody({ message, history })),
   })
 
   if (!response.ok) {
@@ -56,18 +90,7 @@ export async function streamChat(
       method: 'POST',
       headers: getHeaders(true),
       signal,
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: TEMPERATURE,
-        stream: true,
-        messages: [
-          ...history,
-          {
-            role: 'user',
-            content: message,
-          },
-        ],
-      }),
+      body: JSON.stringify(buildRequestBody({ message, history, stream: true })),
     })
 
     if (!response.ok) {
@@ -112,9 +135,11 @@ export async function streamChat(
           try {
             const json = JSON.parse(payload)
 
-            const content =
+            const rawContent =
               json.choices?.[0]?.delta?.content ??
               json.choices?.[0]?.message?.content
+
+            const content = extractTextContent(rawContent)
 
             if (content) {
               onData?.(content)

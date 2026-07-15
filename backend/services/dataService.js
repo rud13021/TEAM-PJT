@@ -12,7 +12,13 @@ async function readJsonDataset(fileName) {
   try {
     const data = await fs.readFile(filePath, 'utf8')
     const parsed = JSON.parse(data)
-    return Array.isArray(parsed) ? parsed : []
+
+    // Support both raw arrays and object payloads like { items: [...] }.
+    if (Array.isArray(parsed)) return parsed
+    if (Array.isArray(parsed?.items)) return parsed.items
+    if (Array.isArray(parsed?.data)) return parsed.data
+
+    return []
   } catch (error) {
     if (error.code === 'ENOENT') {
       return []
