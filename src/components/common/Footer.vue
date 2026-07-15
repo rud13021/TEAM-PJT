@@ -9,10 +9,10 @@
 			</div>
 
 			<div class="site-footer__meta">
-				<span>Home</span>
-				<span>Map</span>
-				<span>Recommend</span>
-				<span>Board</span>
+				<RouterLink :to="{ name: 'home' }">Home</RouterLink>
+				<RouterLink :to="{ name: 'map' }">Map</RouterLink>
+				<RouterLink :to="{ name: 'recommend' }">Recommend</RouterLink>
+				<RouterLink :to="{ name: 'board' }">Board</RouterLink>
 			</div>
 		</div>
 	</footer>
@@ -57,6 +57,16 @@
 	gap: 12px 18px;
 	color: var(--text);
 	font-size: 0.9rem;
+}
+
+.site-footer__meta a {
+	color: var(--text);
+	text-decoration: none;
+}
+
+.site-footer__meta a:hover,
+.site-footer__meta a:focus-visible {
+	color: var(--text-h);
 }
 
 @media (max-width: 1024px) {

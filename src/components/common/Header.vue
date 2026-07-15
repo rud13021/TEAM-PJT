@@ -1,17 +1,17 @@
 <template>
 	<header class="site-header">
 		<div class="site-header__inner">
-			<a class="site-header__brand" href="#" aria-label="TEAM PJT ME home">
+			<RouterLink class="site-header__brand" :to="{ name: 'home' }" aria-label="TEAM PJT ME home">
 				<span class="site-header__mark">T</span>
 				<span class="site-header__text">TEAM-PJT-ME</span>
-			</a>
+			</RouterLink>
 
 			<nav class="site-header__nav" aria-label="Primary">
-				<a href="#">Home</a>
-				<a href="#">Map</a>
-				<a href="#">Recommend</a>
-				<a href="#">Board</a>
-				<a href="#">Chat</a>
+				<RouterLink class="site-header__nav-link" :to="{ name: 'home' }" active-class="site-header__nav-link--active" exact-active-class="site-header__nav-link--active">Home</RouterLink>
+				<RouterLink class="site-header__nav-link" :to="{ name: 'map' }" active-class="site-header__nav-link--active">Map</RouterLink>
+				<RouterLink class="site-header__nav-link" :to="{ name: 'recommend' }" active-class="site-header__nav-link--active">Recommend</RouterLink>
+				<RouterLink class="site-header__nav-link" :to="{ name: 'board' }" active-class="site-header__nav-link--active">Board</RouterLink>
+				<RouterLink class="site-header__nav-link" :to="{ name: 'chat' }" active-class="site-header__nav-link--active">Chat</RouterLink>
 			</nav>
 		</div>
 	</header>
@@ -70,7 +70,7 @@
 	gap: 18px;
 }
 
-.site-header__nav a {
+.site-header__nav-link {
 	color: var(--text);
 	text-decoration: none;
 	font-size: 0.95rem;
@@ -80,10 +80,15 @@
 		opacity 0.2s ease;
 }
 
-.site-header__nav a:hover,
-.site-header__nav a:focus-visible {
+.site-header__nav-link:hover,
+.site-header__nav-link:focus-visible {
 	color: var(--text-h);
 	outline: none;
+}
+
+.site-header__nav-link--active {
+	color: var(--text-h);
+	font-weight: 700;
 }
 
 @media (max-width: 1024px) {
