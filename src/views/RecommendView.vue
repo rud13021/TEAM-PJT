@@ -1,38 +1,48 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useMapStore } from '../stores/map'
-import { loadKakaoMapSdk, searchKakaoPlaces } from '../services/kakaoMap'
+import { useRecommendStore } from '../stores/recommend'
+import { loadKakaoMapSdk } from '../services/kakaoMap'
+import {
+	buildRoutesToDestination,
+	getRecommendCategoryOptions,
+	loadNearbyCategorySpots,
+} from '../services/recommendEngine'
 
 const mapStore = useMapStore()
-const startLocations = computed(() => mapStore.startLocations.filter((location) => location.name?.trim()))
-const categories = [
-	{ id: 'places', name: '명소탐방', emoji: '🏞️' },
-	{ id: 'restaurants', name: '맛집거리', emoji: '🍲' },
-	{ id: 'hotels', name: '숙박지', emoji: '🏨' },
-	{ id: 'festivals', name: '축제광장', emoji: '🎈' },
-	{ id: 'shopping', name: '쇼핑몰', emoji: '🛍️' },
-]
-const selectedCategories = ref(['places', 'restaurants', 'festivals'])
-const places = [
-	{ title: '낙산공원 성곽길 저녁 산책', meta: '서울 종로구 · 4.8', tag: '명소탐방' },
-	{ title: '혜화 대학로 숯불갈비', meta: '서울 종로구 · 4.7', tag: '맛집거리' },
-	{ title: 'DDP 야간 포토존', meta: '서울 중구 · 4.9', tag: '명소탐방' },
-]
-const mapContainer = ref(null)
-let mapInstance = null
+const recommendStore = useRecommendStore()
 
-const toggleCategory = (catId) => {
-	const index = selectedCategories.value.indexOf(catId)
-	if (index > -1) {
-		selectedCategories.value.splice(index, 1)
-	} else {
-		selectedCategories.value.push(catId)
-	}
+const mapContainer = ref(null)
+const statusMessage = ref('지도 로딩 중...')
+const routePreview = ref([])
+const categoryOptions = getRecommendCategoryOptions()
+
+const startLocations = computed(() =>
+	mapStore.startLocations.filter((location) => location.name?.trim() && Number.isFinite(location.lat) && Number.isFinite(location.lng)),
+)
+
+const recommendations = computed(() => recommendStore.recommendations)
+const selectedRecommendation = computed(() => recommendStore.selectedRecommendation)
+const selectedCategories = computed(() => recommendStore.selectedCategoryIds)
+const nearbySpots = computed(() => recommendStore.nearbySpots)
+
+let mapInstance = null
+let markers = []
+let overlays = []
+let polylines = []
+
+function clearMapObjects() {
+	markers.forEach((marker) => marker.setMap(null))
+	overlays.forEach((overlay) => overlay.setMap(null))
+	polylines.forEach((line) => line.setMap(null))
+	markers = []
+	overlays = []
+	polylines = []
 }
 
-const createMarkerSvg = (color, variant = 'circle') => {
+function createMarkerSvg(color, variant = 'circle') {
 	const shapes = {
-		circle: `<circle cx="16" cy="16" r="13" fill="${color}" stroke="#fff" stroke-width="3" />`,
+		circle: `<circle cx="16" cy="16" r="12" fill="${color}" stroke="#fff" stroke-width="3" />`,
 		pin: `<path d="M16 2c-5 0-9 4-9 9 0 6 9 14 9 14s9-8 9-14c0-5-4-9-9-9Z" fill="${color}" stroke="#fff" stroke-width="3" />`,
 		star: `<path d="M16 3.4 19.4 12 29 12l-7.6 5.6 2.9 9.1-8.3-6.1-8.3 6.1 2.9-9.1L3 12h9.6L16 3.4Z" fill="${color}" stroke="#fff" stroke-width="3" />`,
 	}
@@ -40,108 +50,201 @@ const createMarkerSvg = (color, variant = 'circle') => {
 	return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">${shapes[variant] || shapes.circle}</svg>`)}`
 }
 
-const createMarkerLabel = (kakao, map, position, text) => {
-	const label = document.createElement('div')
-	label.style.cssText = 'padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.96); border: 1px solid #e2e8f0; font-size: 11px; color: #0f172a; white-space: nowrap; box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);'
-	label.textContent = text
+function addLabelOverlay(kakao, map, position, text, yAnchor = 1.3) {
+	const node = document.createElement('div')
+	node.style.cssText = 'padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.96); border: 1px solid #e2e8f0; font-size: 11px; color: #0f172a; white-space: nowrap; box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);'
+	node.textContent = text
 
 	const overlay = new kakao.maps.CustomOverlay({
 		position,
-		content: label,
+		content: node,
 		xAnchor: 0.5,
-		yAnchor: 1.3,
+		yAnchor,
 	})
 	overlay.setMap(map)
-	return overlay
+	overlays.push(overlay)
 }
 
-const initRecommendMap = async () => {
-	if (!mapContainer.value) return
+function addMarker(kakao, map, point, color, label, variant = 'circle', size = 32) {
+	const position = new kakao.maps.LatLng(point.lat, point.lng)
+	const marker = new kakao.maps.Marker({
+		position,
+		image: new kakao.maps.MarkerImage(createMarkerSvg(color, variant), new kakao.maps.Size(size, size), {
+			offset: new kakao.maps.Point(size / 2, size / 2),
+		}),
+	})
+	marker.setMap(map)
+	markers.push(marker)
+
+	if (label) {
+		addLabelOverlay(kakao, map, position, label)
+	}
+
+	return marker
+}
+
+function drawRouteLine(kakao, map, route, color) {
+	if (!route?.path?.length) {
+		return
+	}
+
+	const path = route.path
+		.filter((point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng))
+		.map((point) => new kakao.maps.LatLng(point.lat, point.lng))
+
+	if (path.length < 2) {
+		return
+	}
+
+	const polyline = new kakao.maps.Polyline({
+		map,
+		path,
+		strokeWeight: 5,
+		strokeColor: color,
+		strokeOpacity: 0.92,
+		strokeStyle: 'solid',
+	})
+	polylines.push(polyline)
+
+	const middle = path[Math.floor(path.length / 2)]
+	addLabelOverlay(kakao, map, middle, `${route.durationMinutes}분`, 2.2)
+}
+
+async function ensureRoutesForSelected() {
+	if (!selectedRecommendation.value) {
+		routePreview.value = []
+		return
+	}
+
+	if (Array.isArray(selectedRecommendation.value.routes) && selectedRecommendation.value.routes.length) {
+		routePreview.value = selectedRecommendation.value.routes
+		return
+	}
+
+	routePreview.value = await buildRoutesToDestination(startLocations.value, selectedRecommendation.value)
+}
+
+async function refreshNearbySpots() {
+	if (!selectedRecommendation.value || !selectedCategories.value.length) {
+		recommendStore.setNearbySpots([])
+		return
+	}
+
+	const spots = await loadNearbyCategorySpots(
+		selectedCategories.value,
+		selectedRecommendation.value,
+		3,
+		30,
+	)
+	recommendStore.setNearbySpots(spots)
+}
+
+function selectRecommendation(recommendationId) {
+	recommendStore.setSelectedRecommendation(recommendationId)
+}
+
+function toggleCategory(categoryId) {
+	const copied = [...selectedCategories.value]
+	const index = copied.indexOf(categoryId)
+	if (index >= 0) {
+		copied.splice(index, 1)
+	} else {
+		copied.push(categoryId)
+	}
+	recommendStore.setSelectedCategories(copied)
+}
+
+function openNaverSearch(url) {
+	window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+async function initRecommendMap() {
+	if (!mapContainer.value) {
+		return
+	}
+
+	if (!selectedRecommendation.value) {
+		statusMessage.value = '메인 페이지에서 중간 지점 계산 후 TOP 3를 선택해 주세요.'
+		if (mapContainer.value) {
+			mapContainer.value.innerHTML = '<div class="map-empty">메인 페이지에서 중간 지점 계산 후 TOP 3를 선택해 주세요.</div>'
+		}
+		return
+	}
 
 	try {
 		const kakao = await loadKakaoMapSdk()
-		if (!mapContainer.value) return
-
-		if (mapInstance) {
-			mapInstance.remove()
+		if (!mapContainer.value) {
+			return
 		}
 
-		const validLocations = startLocations.value.filter((location) => Number.isFinite(location.lat) && Number.isFinite(location.lng))
-		const center = validLocations.length
-			? {
-					lat: validLocations.reduce((sum, location) => sum + location.lat, 0) / validLocations.length,
-					lng: validLocations.reduce((sum, location) => sum + location.lng, 0) / validLocations.length,
-				}
-			: { lat: 37.5665, lng: 126.9979 }
+		await ensureRoutesForSelected()
 
+		if (mapInstance && mapContainer.value) {
+			clearMapObjects()
+			mapContainer.value.innerHTML = ''
+			mapInstance = null
+		}
+
+		const centerPoint = selectedRecommendation.value
 		mapInstance = new kakao.maps.Map(mapContainer.value, {
-			center: new kakao.maps.LatLng(center.lat, center.lng),
+			center: new kakao.maps.LatLng(centerPoint.lat, centerPoint.lng),
 			level: 6,
 		})
 
+		clearMapObjects()
+
 		const bounds = new kakao.maps.LatLngBounds()
-		const centerPosition = new kakao.maps.LatLng(center.lat, center.lng)
-		const centerMarker = new kakao.maps.Marker({
-			position: centerPosition,
-			image: new kakao.maps.MarkerImage(createMarkerSvg('#4f46e5', 'pin'), new kakao.maps.Size(32, 32), { offset: new kakao.maps.Point(16, 16) }),
-		})
-		centerMarker.setMap(mapInstance)
-		createMarkerLabel(kakao, mapInstance, centerPosition, '추천 거점')
-		bounds.extend(centerPosition)
+		const destinationPosition = new kakao.maps.LatLng(centerPoint.lat, centerPoint.lng)
+		addMarker(kakao, mapInstance, centerPoint, '#4f46e5', `${selectedRecommendation.value.rank}순위 ${selectedRecommendation.value.name}`, 'pin', 36)
+		bounds.extend(destinationPosition)
 
-		const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
-		validLocations.forEach((location, index) => {
-			const markerPosition = new kakao.maps.LatLng(location.lat, location.lng)
-			const marker = new kakao.maps.Marker({
-				position: markerPosition,
-				image: new kakao.maps.MarkerImage(createMarkerSvg(colors[index % colors.length], 'circle'), new kakao.maps.Size(32, 32), { offset: new kakao.maps.Point(16, 16) }),
-			})
-			marker.setMap(mapInstance)
-			createMarkerLabel(kakao, mapInstance, markerPosition, location.name)
-			bounds.extend(markerPosition)
+		const startColors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
+		startLocations.value.forEach((location, index) => {
+			addMarker(kakao, mapInstance, location, startColors[index % startColors.length], `출발 ${index + 1}: ${location.name}`, 'circle', 30)
+			bounds.extend(new kakao.maps.LatLng(location.lat, location.lng))
 		})
 
-		await Promise.all(
-			places.map(async (place) => {
-				const results = await searchKakaoPlaces(place.title)
-				if (!results.length) return
-				const spot = results[0]
-				const markerPosition = new kakao.maps.LatLng(Number(spot.y), Number(spot.x))
-				const marker = new kakao.maps.Marker({
-					position: markerPosition,
-					image: new kakao.maps.MarkerImage(createMarkerSvg('#8b5cf6', 'star'), new kakao.maps.Size(34, 34), { offset: new kakao.maps.Point(17, 17) }),
-				})
-				marker.setMap(mapInstance)
-				createMarkerLabel(kakao, mapInstance, markerPosition, place.title)
-				bounds.extend(markerPosition)
+		routePreview.value.forEach((route, index) => {
+			drawRouteLine(kakao, mapInstance, route, startColors[index % startColors.length])
+			if (Number.isFinite(route.origin?.lat) && Number.isFinite(route.origin?.lng)) {
+				bounds.extend(new kakao.maps.LatLng(route.origin.lat, route.origin.lng))
+			}
+		})
 
-				const infoWindow = new kakao.maps.InfoWindow({
-					content: `<div style="padding:8px 10px;font-size:12px;line-height:1.4;max-width:180px;">${place.title}<br /><span style="color:#64748b;">${spot.addressName || spot.roadAddressName || ''}</span></div>`,
-				})
-				kakao.maps.event.addListener(marker, 'click', () => infoWindow.open(mapInstance, marker))
-			}),
-		)
+		nearbySpots.value.forEach((spot) => {
+			addMarker(kakao, mapInstance, spot, '#7c3aed', spot.title, 'star', 30)
+			bounds.extend(new kakao.maps.LatLng(spot.lat, spot.lng))
+		})
 
-		if (validLocations.length > 1) {
-			mapInstance.setBounds(bounds)
-		} else {
-			mapInstance.setCenter(centerPosition)
-		}
+		mapInstance.setBounds(bounds)
+		statusMessage.value = ''
 	} catch (error) {
-		console.error('🔥 실제 에러:', error)
+		console.error('Recommend map failed:', error)
+		statusMessage.value = '카카오 지도 로딩에 실패했습니다. 카카오 앱 키를 확인해 주세요.'
 		if (mapContainer.value) {
-			mapContainer.value.innerHTML = '<div class="map-empty">카카오 지도 로딩에 실패했습니다. 카카오 앱 키를 설정해 주세요.</div>'
+			mapContainer.value.innerHTML = '<div class="map-empty">카카오 지도 로딩에 실패했습니다. 카카오 앱 키를 확인해 주세요.</div>'
 		}
 	}
 }
 
-onMounted(() => {
+onMounted(async () => {
+	await refreshNearbySpots()
 	nextTick(() => initRecommendMap())
 })
 
-watch(startLocations, () => {
+watch(selectedRecommendation, async () => {
+	await refreshNearbySpots()
 	nextTick(() => initRecommendMap())
-}, { deep: true })
+})
+
+watch(
+	selectedCategories,
+	async () => {
+		await refreshNearbySpots()
+		nextTick(() => initRecommendMap())
+	},
+	{ deep: true },
+)
 </script>
 
 <template>
@@ -150,13 +253,31 @@ watch(startLocations, () => {
 			<aside class="control-panel">
 				<div class="panel-card panel-card--title">
 					<p class="panel-eyebrow">거점 분석 & 지도</p>
-					<h1>출발지와 선호 카테고리를 바탕으로 가장 무난한 거점을 찾습니다.</h1>
+					<h1>출발지별 이동시간과 편차를 함께 계산해 TOP 3 목적지를 추천합니다.</h1>
+				</div>
+
+				<div class="panel-card">
+					<h2>중간 지점 TOP 3</h2>
+					<div v-if="recommendations.length" class="rank-list">
+						<button
+							v-for="item in recommendations"
+							:key="item.id"
+							type="button"
+							class="rank-item"
+							:class="selectedRecommendation?.id === item.id ? 'rank-item--active' : ''"
+							@click="selectRecommendation(item.id)"
+						>
+							<strong>{{ item.rank }}순위 {{ item.name }}</strong>
+							<span>{{ item.totalTravelTime }}분 · 편차 {{ item.arrivalGap }}분</span>
+						</button>
+					</div>
+					<p v-else class="empty-text">메인 화면에서 중간 지점 계산을 먼저 진행해 주세요.</p>
 				</div>
 
 				<div class="panel-card">
 					<h2>나의 출발 포인트</h2>
 					<div class="chip-list">
-						<span v-for="item in startLocations" :key="item.name + item.address" class="chip">{{ item.name }}</span>
+						<span v-for="item in startLocations" :key="item.name + item.lat + item.lng" class="chip">{{ item.name }}</span>
 					</div>
 				</div>
 
@@ -164,36 +285,43 @@ watch(startLocations, () => {
 					<h2>지도 상 시각화 대상</h2>
 					<div class="chip-list">
 						<button
-							v-for="item in categories"
+							v-for="item in categoryOptions"
 							:key="item.id"
 							type="button"
 							class="chip chip--accent"
 							:class="selectedCategories.includes(item.id) ? 'chip--active' : ''"
 							@click="toggleCategory(item.id)"
 						>
-							{{ item.emoji }} {{ item.name }}
+							{{ item.name }}
 						</button>
 					</div>
 				</div>
 
 				<div class="panel-card panel-card--grow">
-					<h2>추천 스팟 목록</h2>
+					<h2>추천 스팟 목록 (3km 이내)</h2>
 					<div class="place-list">
-						<div v-for="place in places" :key="place.title" class="place-card">
-							<span class="place-card__tag">{{ place.tag }}</span>
-							<strong>{{ place.title }}</strong>
-							<p>{{ place.meta }}</p>
+						<div v-for="spot in nearbySpots" :key="spot.id" class="place-card">
+							<div class="place-card__main">
+								<span class="place-card__tag">{{ spot.categoryLabel }}</span>
+								<strong>{{ spot.title }}</strong>
+								<p>{{ spot.address || '서울 지역' }} · {{ spot.distanceKm.toFixed(2) }}km</p>
+							</div>
+							<button type="button" class="naver-button" @click="openNaverSearch(spot.naverSearchUrl)" title="네이버 검색">
+								N
+							</button>
 						</div>
+						<p v-if="!nearbySpots.length" class="empty-text">선택된 카테고리에서 3km 이내 스팟이 없습니다.</p>
 					</div>
 				</div>
 			</aside>
 
 			<section class="map-panel">
-				<div class="map-overlay">
+				<div class="map-overlay" v-if="selectedRecommendation">
 					<p>추천 거점</p>
-					<h2>을지로4가역</h2>
-					<span>대중교통 접근성과 식사·관광 동선 모두 우수</span>
+					<h2>{{ selectedRecommendation.name }}</h2>
+					<span>총 이동 {{ selectedRecommendation.totalTravelTime }}분 · 도착 편차 {{ selectedRecommendation.arrivalGap }}분</span>
 				</div>
+				<div v-if="statusMessage" class="map-status">{{ statusMessage }}</div>
 				<div ref="mapContainer" class="kakao-map"></div>
 			</section>
 		</section>
@@ -255,6 +383,38 @@ watch(startLocations, () => {
 	color: #4f46e5;
 }
 
+.rank-list {
+	display: grid;
+	gap: 8px;
+}
+
+.rank-item {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	padding: 10px 12px;
+	border-radius: 14px;
+	border: 1px solid #e2e8f0;
+	background: #f8fafc;
+	cursor: pointer;
+}
+
+.rank-item strong {
+	font-size: 0.94rem;
+	color: #0f172a;
+}
+
+.rank-item span {
+	font-size: 0.82rem;
+	color: #64748b;
+}
+
+.rank-item--active {
+	border-color: #4f46e5;
+	background: #eef2ff;
+}
+
 .chip-list {
 	display: flex;
 	flex-wrap: wrap;
@@ -290,11 +450,18 @@ watch(startLocations, () => {
 
 .place-card {
 	display: flex;
-	flex-direction: column;
-	gap: 4px;
+	justify-content: space-between;
+	align-items: center;
+	gap: 10px;
 	padding: 12px 14px;
 	border-radius: 16px;
 	background: #f8fafc;
+}
+
+.place-card__main {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
 }
 
 .place-card__tag {
@@ -310,7 +477,24 @@ watch(startLocations, () => {
 .place-card p {
 	margin: 0;
 	color: #64748b;
-	font-size: 0.9rem;
+	font-size: 0.85rem;
+}
+
+.naver-button {
+	width: 28px;
+	height: 28px;
+	border: 0;
+	border-radius: 999px;
+	background: #03c75a;
+	color: #fff;
+	font-weight: 900;
+	cursor: pointer;
+}
+
+.empty-text {
+	margin: 4px 0 0;
+	font-size: 0.88rem;
+	color: #64748b;
 }
 
 .map-panel {
@@ -337,6 +521,19 @@ watch(startLocations, () => {
 	padding: 24px;
 	color: #334155;
 	font-size: 0.95rem;
+}
+
+.map-status {
+	position: absolute;
+	top: 20px;
+	right: 20px;
+	z-index: 2;
+	padding: 8px 10px;
+	border-radius: 12px;
+	font-size: 0.84rem;
+	color: #334155;
+	background: rgba(255, 255, 255, 0.9);
+	border: 1px solid #e2e8f0;
 }
 
 .map-overlay {

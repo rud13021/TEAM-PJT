@@ -1,21 +1,32 @@
 <script setup>
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useMapStore } from '../stores/map'
+import { useRecommendStore } from '../stores/recommend'
 import { openKakaoAddressSearch } from '../services/kakaoMap'
+import { buildTopMeetingRecommendations, loadMeetupCandidates } from '../services/recommendEngine'
 import Chart from 'chart.js/auto'
 
 const mapStore = useMapStore()
+const recommendStore = useRecommendStore()
+const router = useRouter()
+
 const startLocations = computed({
 	get: () => mapStore.startLocations,
 	set: (value) => mapStore.setStartLocations(value),
 })
 
-const calcResult = ref(null)
+const topRecommendations = computed(() => recommendStore.recommendations)
+const calcResult = computed(() => recommendStore.selectedRecommendation)
+const bestRecommendation = computed(() => topRecommendations.value[0] || null)
+
+const isCalculating = ref(false)
+const calcError = ref('')
 const chartCanvas = ref(null)
 let chartInstance = null
 const chartSeries = ref([])
 const festivalItems = ref([])
+
 const ctaCards = [
 	{ title: '1. 다차원 정밀 계산', text: '대중교통 환승 시간과 이동 거리의 균형을 반영해 최적 약속 지점을 산출합니다.' },
 	{ title: '2. AI 관광 비서 지원', text: '선정된 지역에 맞춰 코스, 맛집, 축제를 한 번에 추천해 드립니다.' },
@@ -44,25 +55,50 @@ const openAddressSearch = async (index) => {
 	})
 }
 
-const calculateMiddlePoint = () => {
-	const valid = startLocations.value.filter((item) => item.name?.trim())
-	if (valid.length < 2) {
-		calcResult.value = null
+const calculateMiddlePoint = async () => {
+	const validStarts = startLocations.value.filter(
+		(item) => item.name?.trim() && Number.isFinite(item.lat) && Number.isFinite(item.lng),
+	)
+
+	if (validStarts.length < 2) {
+		recommendStore.clearRecommendations()
+		calcError.value = '출발지는 최소 2개 이상, 주소 검색으로 좌표까지 선택해야 계산할 수 있습니다.'
 		return
 	}
 
-	calcResult.value = {
-		name: '을지로4가역',
-		places: [
-			{ name: '청계천 세운상가 옥상 공원', desc: '서울의 전경과 산책 동선이 잘 이어지는 명소' },
-			{ name: '동대문 패션타운 문화공간', desc: '쇼핑과 야간 명소를 함께 즐기기 좋은 거점' },
-		],
-		foods: [
-			{ name: '대성집 도가니탕 전문', desc: '속풀이 해장국과 국물 코스가 만족도 높은 식당' },
-			{ name: '을지다방 쌍화차', desc: '로컬 감성의 복고풍 카페와 디저트' },
-		],
-		course: ['1. 청계천 산책길 산보', '2. 을지로4가 대성집 갈비 식사', '3. 대학로 낙산공원 노을 관람'],
+	isCalculating.value = true
+	calcError.value = ''
+
+	try {
+		const candidates = await loadMeetupCandidates()
+		const recommendations = await buildTopMeetingRecommendations(validStarts, candidates, {
+			maxTravelMinutes: 45,
+			topN: 3,
+		})
+
+		if (!recommendations.length) {
+			recommendStore.clearRecommendations()
+			calcError.value = '45분 이내로 도착 가능한 공통 후보를 찾지 못했습니다. 출발지를 다시 선택해 주세요.'
+			return
+		}
+
+		recommendStore.setRecommendations(recommendations)
+	} catch (error) {
+		console.error('Failed to calculate recommendations:', error)
+		recommendStore.clearRecommendations()
+		calcError.value = '중간 지점 계산 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'
+	} finally {
+		isCalculating.value = false
 	}
+}
+
+const selectRecommendation = (recommendationId) => {
+	recommendStore.setSelectedRecommendation(recommendationId)
+}
+
+const openRecommendationMap = async (recommendationId) => {
+	recommendStore.setSelectedRecommendation(recommendationId)
+	await router.push({ name: 'recommend' })
 }
 
 const renderChart = () => {
@@ -167,20 +203,20 @@ onMounted(async () => {
 					<div class="input-list">
 						<div v-for="(location, index) in startLocations" :key="index" class="input-row">
 							<span class="input-row__index">{{ index + 1 }}</span>
-						<div class="input-group">
-							<input
-								v-model="location.name"
-								type="text"
-								:placeholder="index === 0 ? '도로명/건물명/지번을 검색해 입력하세요' : '도로명/건물명/지번을 검색해 입력하세요'"
-							/>
-							<button type="button" class="search-button" @click="openAddressSearch(index)">주소 검색</button>
+							<div class="input-group">
+								<input v-model="location.name" type="text" placeholder="도로명/건물명/지번을 검색해 입력하세요" />
+								<span v-if="location.address" class="selected-address" :title="location.address">{{ location.address }}</span>
+								<button type="button" class="search-button" @click="openAddressSearch(index)">주소 검색</button>
+							</div>
+							<button type="button" class="icon-button" @click="removeStartLocation(index)">✕</button>
 						</div>
-						<button type="button" class="icon-button" @click="removeStartLocation(index)">✕</button>
-					</div>
 					</div>
 
 					<div class="hero-input-card__footer">
-						<button type="button" class="calculate-button" @click="calculateMiddlePoint">중간 지점 계산하기</button>
+						<button type="button" class="calculate-button" :disabled="isCalculating" @click="calculateMiddlePoint">
+							{{ isCalculating ? '계산 중...' : '중간 지점 계산하기' }}
+						</button>
+						<p v-if="calcError" class="calc-error">{{ calcError }}</p>
 					</div>
 				</div>
 			</div>
@@ -188,8 +224,8 @@ onMounted(async () => {
 			<div class="hero-side-card">
 				<div class="hero-side-card__accent">
 					<span>오늘의 추천 거점</span>
-					<strong>을지로4가역</strong>
-					<small>대중교통 환승과 식사·문화시설이 모두 균형적으로 몰린 핵심 허브입니다.</small>
+					<strong>{{ bestRecommendation?.name || '중간 지점 계산 대기' }}</strong>
+					<small>{{ bestRecommendation?.feature || '출발지 2곳 이상을 주소 검색으로 선택하면 TOP 3 거점을 계산합니다.' }}</small>
 				</div>
 				<div class="hero-side-card__plain">
 					<span>추천 포인트</span>
@@ -199,35 +235,36 @@ onMounted(async () => {
 			</div>
 		</section>
 
-		<section v-if="calcResult" class="result-section">
+		<section v-if="topRecommendations.length" class="result-section">
 			<div class="result-banner">
 				<div>
 					<p class="result-banner__eyebrow">연산 매칭 결과</p>
-					<h2>가장 완벽한 만남 광장은 <span>‘{{ calcResult.name }}’</span> 입니다!</h2>
+					<h2>가장 완벽한 만남 광장은 <span>‘{{ calcResult?.name }}’</span> 입니다!</h2>
 				</div>
 				<RouterLink class="btn btn--primary" :to="{ name: 'recommend' }">상세 지도 및 근처 코스 보기</RouterLink>
 			</div>
 
 			<div class="highlight-grid">
-				<div class="highlight-card highlight-card--wide">
-					<h3>주변 명소 탐방</h3>
-					<div v-for="place in calcResult.places" :key="place.name" class="mini-list">
-						<p>{{ place.name }}</p>
-						<span>{{ place.desc }}</span>
+				<div
+					v-for="item in topRecommendations"
+					:key="item.id"
+					class="highlight-card recommendation-card"
+					:class="item.id === calcResult?.id ? 'recommendation-card--active' : ''"
+				>
+					<div class="recommendation-card__header">
+						<h3>{{ item.rank }}순위 · {{ item.name }}</h3>
+						<span>{{ item.category }} · {{ item.district }}</span>
 					</div>
-				</div>
-				<div class="highlight-card highlight-card--wide">
-					<h3>추천 미식 코스</h3>
-					<div v-for="food in calcResult.foods" :key="food.name" class="mini-list">
-						<p>{{ food.name }}</p>
-						<span>{{ food.desc }}</span>
+					<p class="recommendation-card__summary">
+						총 이동 {{ item.totalTravelTime }}분 · 도착 편차 {{ item.arrivalGap }}분 · 중심거리 {{ item.midpointDistanceKm.toFixed(2) }}km
+					</p>
+					<div v-for="(route, routeIndex) in item.routes" :key="`${item.id}-${routeIndex}`" class="mini-list">
+						<p>{{ route.originName }} → {{ item.name }}</p>
+						<span>예상 소요 {{ route.durationMinutes }}분</span>
 					</div>
-				</div>
-				<div class="highlight-card">
-					<h3>원스톱 여행 코스 추천</h3>
-					<div v-for="(step, index) in calcResult.course" :key="index" class="course-step">
-						<span>{{ index + 1 }}</span>
-						<p>{{ step }}</p>
+					<div class="recommendation-card__actions">
+						<button type="button" class="search-button" @click="selectRecommendation(item.id)">선택</button>
+						<button type="button" class="search-button" @click="openRecommendationMap(item.id)">지도 경로 보기</button>
 					</div>
 				</div>
 			</div>
@@ -337,8 +374,7 @@ onMounted(async () => {
 	gap: 12px;
 }
 
-.hero-input-card__header span,
-.hero-input-card__footer label {
+.hero-input-card__header span {
 	font-size: 0.8rem;
 	font-weight: 700;
 	color: #334155;
@@ -371,6 +407,7 @@ onMounted(async () => {
 	align-items: center;
 	flex: 1;
 	gap: 8px;
+	min-width: 0;
 }
 
 .input-row__index {
@@ -396,74 +433,24 @@ onMounted(async () => {
 	font-size: 0.9rem;
 }
 
+.selected-address {
+	max-width: 290px;
+	padding: 8px 10px;
+	border-radius: 10px;
+	background: #f1f5f9;
+	border: 1px solid #dbe3ee;
+	font-size: 0.8rem;
+	color: #334155;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .search-button {
 	padding: 8px 10px;
 	background: #eef2ff;
 	border-radius: 10px;
 	white-space: nowrap;
-}
-
-.search-result-panel {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	margin: 2px 0 4px 34px;
-	padding: 12px;
-	border: 1px solid #dbeafe;
-	border-radius: 16px;
-	background: linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%);
-	box-shadow: 0 8px 18px rgba(37, 99, 235, 0.08);
-	align-self: flex-start;
-	width: min(100%, 420px);
-}
-
-.search-result-panel--empty {
-	border-color: #e2e8f0;
-	background: #f8fafc;
-}
-
-.search-result-panel__header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	gap: 8px;
-	color: #1d4ed8;
-	font-size: 0.85rem;
-	font-weight: 700;
-}
-
-.search-result-panel__header span {
-	color: #475569;
-	font-weight: 600;
-}
-
-.search-result-list {
-	display: grid;
-	gap: 8px;
-}
-
-.search-result-item {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 3px;
-	padding: 10px 12px;
-	border: 1px solid #e2e8f0;
-	border-radius: 12px;
-	background: #fff;
-	text-align: left;
-	cursor: pointer;
-	width: 100%;
-}
-
-.search-result-item strong {
-	font-size: 0.9rem;
-	color: #0f172a;
-}
-
-.search-result-item span {
-	font-size: 0.8rem;
-	color: #64748b;
 }
 
 .calculate-button,
@@ -483,6 +470,17 @@ onMounted(async () => {
 	color: #fff;
 	border: none;
 	cursor: pointer;
+}
+
+.calculate-button:disabled {
+	opacity: 0.65;
+	cursor: wait;
+}
+
+.calc-error {
+	margin: 0;
+	font-size: 0.84rem;
+	color: #dc2626;
 }
 
 .btn:hover,
@@ -576,20 +574,47 @@ onMounted(async () => {
 }
 
 .highlight-card h3 {
-	margin: 0 0 10px;
+	margin: 0;
 	font-size: 1.05rem;
 	color: #0f172a;
+}
+
+.recommendation-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.recommendation-card--active {
+	border-color: #4f46e5;
+	box-shadow: 0 12px 22px rgba(79, 70, 229, 0.15);
+}
+
+.recommendation-card__header {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 8px;
+}
+
+.recommendation-card__header span {
+	font-size: 0.8rem;
+	color: #64748b;
+}
+
+.recommendation-card__summary {
+	margin: 0;
+	font-size: 0.9rem;
+	color: #475569;
 }
 
 .mini-list {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-	margin-bottom: 8px;
 }
 
-.mini-list p,
-.course-step p {
+.mini-list p {
 	margin: 0;
 	font-size: 0.95rem;
 	font-weight: 700;
@@ -602,25 +627,9 @@ onMounted(async () => {
 	line-height: 1.5;
 }
 
-.course-step {
+.recommendation-card__actions {
 	display: flex;
-	align-items: flex-start;
 	gap: 8px;
-	margin-bottom: 8px;
-}
-
-.course-step span {
-	display: inline-flex;
-	justify-content: center;
-	align-items: center;
-	width: 24px;
-	height: 24px;
-	border-radius: 999px;
-	background: #eef2ff;
-	color: #4338ca;
-	font-size: 0.8rem;
-	font-weight: 700;
-	flex-shrink: 0;
 }
 
 .dashboard-section {
@@ -722,6 +731,10 @@ onMounted(async () => {
 	.hero-input-card__footer {
 		flex-direction: column;
 		align-items: flex-start;
+	}
+
+	.selected-address {
+		max-width: 200px;
 	}
 }
 </style>
