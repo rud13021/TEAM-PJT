@@ -1,50 +1,42 @@
-const DATASET_PATHS = {
-	places: '/data/places.json',
-	restaurants: '/data/restaurants.json',
-	festivals: '/data/festivals.json',
-	hotels: '/data/hotels.json',
-	shopping: '/data/shopping.json',
+import api from './api'
+
+const DATASET_ENDPOINTS = {
+	places: '/places',
+	restaurants: '/restaurants',
+	festivals: '/festivals',
+	hotels: '/hotels',
+	shopping: '/shopping',
 }
 
-async function loadJsonFile(filePath) {
+async function loadDataset(endpoint) {
 	try {
-		const response = await fetch(filePath)
-
-		if (!response.ok) {
-			return []
-		}
-
-		const text = await response.text()
-
-		if (!text.trim()) {
-			return []
-		}
-
-		const data = JSON.parse(text)
+		const response = await api.get(endpoint)
+		const data = response?.data
 		return Array.isArray(data) ? data : []
-	} catch {
+	} catch (error) {
+		console.error(`Failed to load dataset from ${endpoint}:`, error)
 		return []
 	}
 }
 
 export async function loadPlaces() {
-	return loadJsonFile(DATASET_PATHS.places)
+	return loadDataset(DATASET_ENDPOINTS.places)
 }
 
 export async function loadRestaurants() {
-	return loadJsonFile(DATASET_PATHS.restaurants)
+	return loadDataset(DATASET_ENDPOINTS.restaurants)
 }
 
 export async function loadFestivals() {
-	return loadJsonFile(DATASET_PATHS.festivals)
+	return loadDataset(DATASET_ENDPOINTS.festivals)
 }
 
 export async function loadHotels() {
-	return loadJsonFile(DATASET_PATHS.hotels)
+	return loadDataset(DATASET_ENDPOINTS.hotels)
 }
 
 export async function loadShopping() {
-	return loadJsonFile(DATASET_PATHS.shopping)
+	return loadDataset(DATASET_ENDPOINTS.shopping)
 }
 
 export async function loadAllDatasets() {
