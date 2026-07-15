@@ -56,31 +56,91 @@ export async function openKakaoAddressSearch() {
   const Postcode = await loadPostcodeScript()
 
   if (!Postcode) {
-    return { dismissed: true }
+    return {
+      dismissed: true,
+      status: 'POSTCODE_UNAVAILABLE',
+      debugMessage: '주소 검색 스크립트를 로드하지 못했습니다.',
+    }
   }
 
   return new Promise((resolve) => {
+    let settled = false
+    let selected = false
+
+    const safeResolve = (payload) => {
+      if (settled) return
+      settled = true
+      resolve(payload)
+    }
+
     const postcode = new Postcode({
       oncomplete: (data) => {
+        // Mark selection immediately so onclose cannot win the race.
+        selected = true
+
         const fullAddress = data.roadAddress || data.jibunAddress || data.address || ''
         const addressLabel = [data.roadAddress, data.buildingName ? `(${data.buildingName})` : ''].filter(Boolean).join(' ')
 
-        const geocoder = new kakao.maps.services.Geocoder()
-        geocoder.addressSearch(fullAddress, (result, status) => {
-          resolve({
+        if (!fullAddress) {
+          safeResolve({
             dismissed: false,
+            status: 'EMPTY_ADDRESS',
+            debugMessage: '선택된 주소 문자열이 비어 있습니다.',
+            fullAddress: '',
+            roadAddress: data.roadAddress || '',
+            jibunAddress: data.jibunAddress || '',
+            buildingName: data.buildingName || '',
+            zonecode: data.zonecode || '',
+            addressType: data.userSelectedType || '',
+            lat: null,
+            lng: null,
+          })
+          return
+        }
+
+        const geocoder = new kakao.maps.services.Geocoder()
+        try {
+          geocoder.addressSearch(fullAddress, (result, status) => {
+            const isOk = status === kakao.maps.services.Status.OK
+
+            safeResolve({
+              dismissed: false,
+              status: isOk ? 'OK' : `GEOCODER_${status || 'FAILED'}`,
+              debugMessage: isOk ? '' : '주소는 선택되었지만 좌표 변환에 실패했습니다.',
+              fullAddress: addressLabel || fullAddress,
+              roadAddress: data.roadAddress || '',
+              jibunAddress: data.jibunAddress || '',
+              buildingName: data.buildingName || '',
+              zonecode: data.zonecode || '',
+              addressType: data.userSelectedType || '',
+              lat: isOk ? Number(result?.[0]?.y) : null,
+              lng: isOk ? Number(result?.[0]?.x) : null,
+            })
+          })
+        } catch (error) {
+          console.error('Kakao geocoder failed:', error)
+          safeResolve({
+            dismissed: false,
+            status: 'GEOCODER_EXCEPTION',
+            debugMessage: '좌표 변환 중 예외가 발생했습니다.',
             fullAddress: addressLabel || fullAddress,
             roadAddress: data.roadAddress || '',
             jibunAddress: data.jibunAddress || '',
             buildingName: data.buildingName || '',
             zonecode: data.zonecode || '',
             addressType: data.userSelectedType || '',
-            lat: status === kakao.maps.services.Status.OK ? Number(result?.[0]?.y) : null,
-            lng: status === kakao.maps.services.Status.OK ? Number(result?.[0]?.x) : null,
+            lat: null,
+            lng: null,
           })
-        })
+        }
       },
-      onclose: () => resolve({ dismissed: true }),
+      onclose: () => {
+        if (selected) {
+          return
+        }
+
+        safeResolve({ dismissed: true, status: 'CLOSED' })
+      },
       width: '100%',
       height: '100%',
     })

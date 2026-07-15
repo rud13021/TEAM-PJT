@@ -3,6 +3,7 @@ import healthRoutes from './routes/health.js'
 import dataRoutes from './routes/data.js'
 import chatRoutes from './routes/chat.js'
 import recommendRoutes from './routes/recommend.js'
+import naverRoutes from './routes/naver.js'
 import { errorHandler } from './middleware/errorHandler.js'
 
 const app = express()
@@ -39,6 +40,7 @@ app.use('/api', healthRoutes)
 app.use('/api', dataRoutes)
 app.use('/api', chatRoutes)
 app.use('/api', recommendRoutes)
+app.use('/api/naver', naverRoutes)
 app.use(errorHandler)
 
 export default app
