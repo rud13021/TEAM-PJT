@@ -22,22 +22,30 @@ async function readJsonDataset(fileName) {
   }
 }
 
+// The public/data files in this project use Korean filenames.
+// Map the expected dataset functions to the actual filenames where available.
 export async function getPlacesData() {
-  return readJsonDataset('places.json')
+  return readJsonDataset('서울_관광지.json')
 }
 
 export async function getRestaurantsData() {
-  return readJsonDataset('restaurants.json')
+  // No explicit restaurants file available; try common alternatives, fallback to empty
+  const alternatives = ['서울_음식점.json', '서울_레포츠.json', '서울_여행코스.json']
+  for (const f of alternatives) {
+    const data = await readJsonDataset(f)
+    if (data.length) return data
+  }
+  return []
 }
 
 export async function getFestivalsData() {
-  return readJsonDataset('festivals.json')
+  return readJsonDataset('서울_축제공연행사.json')
 }
 
 export async function getHotelsData() {
-  return readJsonDataset('hotels.json')
+  return readJsonDataset('서울_숙박.json')
 }
 
 export async function getShoppingData() {
-  return readJsonDataset('shopping.json')
+  return readJsonDataset('서울_쇼핑.json')
 }
