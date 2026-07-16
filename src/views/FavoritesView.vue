@@ -65,7 +65,7 @@ function removeFavorite(item) {
 			<div>
 				<p class="favorites-hero__eyebrow">Favorites</p>
 				<h1>저장한 목적지와 여행 코스를 한곳에서 확인하세요.</h1>
-				<p>새로고침해도 localStorage에 남아서, 나중에 다시 이어서 볼 수 있습니다.</p>
+				
 			</div>
 			<RouterLink :to="{ name: 'home' }" class="favorites-hero__link">홈으로 돌아가기</RouterLink>
 		</section>

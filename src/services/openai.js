@@ -62,10 +62,11 @@ function extractTextContent(content) {
 }
 
 export async function createChatDirect(message, history = []) {
-  const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
+  // 주소 변경: OPENAI_BASE 대신 Netlify 함수 주소 사용
+  const response = await fetch('/.netlify/functions/chat', {
     method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(buildRequestBody({ message, history })),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history }), // 키 정보를 뺍니다!
   })
 
   if (!response.ok) {
@@ -86,7 +87,7 @@ export async function streamChat(
   } = {}
 ) {
   try {
-    const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    const response = await fetch('/.netlify/functions/chat', {
       method: 'POST',
       headers: getHeaders(true),
       signal,
