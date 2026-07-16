@@ -101,7 +101,6 @@ export async function localSearch(
 
   const filtered = scored.filter(
     s =>
-      s.score > 0 &&
       (!center || s.dist <= radiusMeters)
   )
 
