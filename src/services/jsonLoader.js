@@ -23,6 +23,11 @@ export async function loadAllDatasets() {
         hotels: normalize(hotelsData),
         shopping: normalize(shoppingData),
     };
+
+	// 이 줄을 추가해서 데이터가 로드되었는지 브라우저 콘솔에서 확인하세요
+    console.log('데이터 로드 완료:', data);
+
+	return data;
 }
 
 // 기존 코드와의 호환성을 위한 함수들 (필요 시 유지)
