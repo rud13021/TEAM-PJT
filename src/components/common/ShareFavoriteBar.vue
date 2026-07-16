@@ -25,13 +25,12 @@ async function handleShare() {
 		return
 	}
 
-	statusMessage.value = ''
 	try {
 		await shareToKakaoTalk(props.item)
-		statusMessage.value = '카카오톡 공유 창을 열었습니다.'
+
 	} catch (error) {
 		console.error('Failed to share to KakaoTalk:', error)
-		statusMessage.value = '카카오톡 공유에 실패했습니다.'
+
 	}
 }
 
@@ -43,7 +42,6 @@ function handleToggleFavorite() {
 	isSaving.value = true
 	try {
 		const saved = favoritesStore.toggleFavorite(props.item)
-		statusMessage.value = saved ? '즐겨찾기에 저장했습니다.' : '즐겨찾기에서 삭제했습니다.'
 	} finally {
 		isSaving.value = false
 	}

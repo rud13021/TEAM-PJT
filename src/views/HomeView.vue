@@ -97,16 +97,21 @@ const festivalCalendarOptions = computed(() => ({
 	},
 	height: 'auto',
 	fixedWeekCount: false,
-	dayMaxEvents: 2,
+	dayMaxEvents: 0,
 	events: festivalItems.value.map((festival, index) => ({
 		id: festival.id,
 		title: festival.title,
 		start: festival.startDate || toFestivalCalendarDate(festival, index),
 		end: festival.endDate || festival.startDate || toFestivalCalendarDate(festival, index),
-		backgroundColor: index % 3 === 0 ? '#4f46e5' : index % 3 === 1 ? '#10b981' : '#f59e0b',
-		borderColor: 'transparent',
-		textColor: '#fff',
+		className: [getFestivalCategoryClass(festival.category)],
+	
 	})),
+
+	dateClick: (info)=>{
+		selectedFestivaldate.value = info.dateStr
+	},
+	moreLinkText:(num) => `+${num}개`,
+
 	eventContent: (eventInfo) => ({
 		html: `<span class="festival-event-badge" aria-hidden="true"></span><span class="festival-event-label">${eventInfo.event.title}</span>`,
 	}),
@@ -122,6 +127,11 @@ const festivalCalendarOptions = computed(() => ({
 			end: dateInfo.endStr,
 		}
 	},
+	dateClick:(info)=>{
+		selectedFestivaldate.value = info.dateStr
+		
+	},
+	moreLinkText:(num) => `+${num}개`,
 	buttonText: {
 		today: '오늘',
 	},
@@ -345,7 +355,7 @@ watch(blogCategoryId, async () => {
 				<p class="hero-banner__eyebrow">MEETPOINT SEOUL</p>
 				<h1>서울에서 만날 때, 누구도 억울하지 않은 중간 장소를 추천합니다.</h1>
 				<p>
-					각자의 출발 위치를 입력하면 교통 편의와 가중치가 반영된 정확한 중심지를 계산해 주변 관광지, 축제, 맛집 코스까지 한눈에 제안합니다.
+					각자의 출발 위치를 입력하면 교통 편의와 가중치가 반영된 정확한 중심지를 계산해 <br /> 주변 관광지, 축제, 맛집 코스까지 한눈에 제안합니다.
 				</p>
 
 				<div class="hero-input-card">
@@ -390,14 +400,6 @@ watch(blogCategoryId, async () => {
 		</section>
 
 		<section v-if="topRecommendations.length" class="result-section">
-			<div class="result-banner">
-				<div>
-					<p class="result-banner__eyebrow">연산 매칭 결과</p>
-					<h2>가장 완벽한 만남 광장은 <span>‘{{ calcResult?.name }}’</span> 입니다!</h2>
-				</div>
-				<RouterLink class="btn btn--primary" :to="{ name: 'map' }">상세 지도 및 근처 코스 보기</RouterLink>
-			</div>
-
 			<div class="highlight-grid">
 				<div
 					v-for="item in topRecommendations"
@@ -410,7 +412,7 @@ watch(blogCategoryId, async () => {
 						<span class="recommendation-card__metric">{{ item.totalTravelTime }}분</span>
 					</div>
 					<div class="recommendation-card__header">
-						<h3>{{ item.rank }}순위 · {{ item.name }}</h3>
+						<h2>{{ item.rank }}순위 · {{ item.name }}</h2>
 						<span>{{ item.category }} · {{ item.district }}</span>
 					</div>
 					<p class="recommendation-card__summary">
@@ -497,12 +499,7 @@ watch(blogCategoryId, async () => {
 			</div>
 		</section>
 
-		<section class="cta-section">
-			<div v-for="card in ctaCards" :key="card.title" class="cta-card">
-				<h3>{{ card.title }}</h3>
-				<p>{{ card.text }}</p>
-			</div>
-		</section>
+		
 	</main>
 </template>
 
@@ -533,6 +530,7 @@ watch(blogCategoryId, async () => {
 }
 
 .hero-banner__content h1 {
+	
 	margin: 0;
 	font-size: clamp(2rem, 3.1vw, 3.1rem);
 	line-height: 1.18;
@@ -654,7 +652,7 @@ watch(blogCategoryId, async () => {
 }
 
 .calculate-button,
-.btn {
+.btn { 
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -666,8 +664,8 @@ watch(blogCategoryId, async () => {
 }
 
 .calculate-button {
-	background: #4f46e5;
-	color: #fff;
+	background: #eef2ff;
+	color: #4f46e5;
 	border: none;
 	cursor: pointer;
 }
@@ -690,7 +688,7 @@ watch(blogCategoryId, async () => {
 }
 
 .btn--primary {
-	background: #4f46e5;
+	background: #8aa6e2;
 	color: #fff;
 	box-shadow: 0 10px 20px rgba(79, 70, 229, 0.2);
 }
@@ -712,8 +710,10 @@ watch(blogCategoryId, async () => {
 }
 
 .hero-side-card__accent {
-	background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+	background: linear-gradient(135deg, 		rgba(86, 123, 223, 0.9) 30%,
+		rgba(138, 166, 226, 0.75) 100%);
 	color: #fff;
+
 }
 
 .hero-side-card span {
@@ -826,10 +826,12 @@ watch(blogCategoryId, async () => {
 	justify-content: space-between;
 	align-items: baseline;
 	gap: 8px;
+	
 }
 
-.recommendation-card__header h3 {
+.recommendation-card__header h2 {
 	line-height: 1.3;
+	color: #e22828;
 }
 
 .recommendation-card__header span {
@@ -1059,6 +1061,7 @@ watch(blogCategoryId, async () => {
 	color: #4338ca;
 	box-shadow: none;
 }
+
 
 .festival-calendar-wrap :deep(.fc .fc-button-primary:not(:disabled).fc-button-active),
 .festival-calendar-wrap :deep(.fc .fc-button-primary:not(:disabled):active) {

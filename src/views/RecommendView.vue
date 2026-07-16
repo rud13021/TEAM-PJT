@@ -438,10 +438,10 @@ watch(
 
 .recommend-top-panels {
 	display: grid;
-	grid-template-columns: minmax(0, 1.48fr) minmax(260px, 0.7fr);
-	align-items: start;
+	grid-template-columns: minmax(0, 1fr) 300px;
 	gap: 20px;
 	margin-bottom: 20px;
+	align-items: stretch;
 }
 
 .recommend-shell {
@@ -459,10 +459,12 @@ watch(
 .panel-card {
 	padding: 20px;
 	border-radius: 22px;
-	background: #fff;
+	background: #ffffff5b;
 	border: 1px solid #e2e8f0;
 	box-shadow: 0 10px 25px rgba(15, 23, 42, 0.04);
 	transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+	height: 100%;
+	box-sizing: border-box;
 }
 
 .panel-card:hover {
@@ -476,15 +478,16 @@ watch(
 }
 
 .panel-card--compact {
-	max-width: 470px;
-	justify-self: start;
+	width: 100%;
+	justify-self: stretch;
 }
 
 .panel-card--title h1 {
-	margin: 0;
-	font-size: 1.25rem;
+	margin: 0 0 10px;
+	font-size: 1.4rem;
 	line-height: 1.45;
 	color: #0f172a;
+	font-family: var(--font-accent);
 }
 
 .summary-list {
@@ -548,7 +551,7 @@ watch(
 
 .rank-item strong {
 	font-size: 1.12rem;
-	color: #0f172a;
+	color: #701202;
 	font-family: var(--font-accent);
 	line-height: 1.3;
 }
@@ -692,13 +695,13 @@ watch(
 .map-panel {
 	display: flex;
 	flex-direction: column;
+	height: 100%;
 	gap: 14px;
 	padding: 18px;
 	border-radius: 28px;
 	border: 1px solid #e2e8f0;
-	background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
+	background: #ffffff5b;
 	box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
-	transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .map-panel:hover {
@@ -708,7 +711,8 @@ watch(
 
 .map-stage {
 	position: relative;
-	height: 500px;
+	min-height: 500px;   /* 최소 높이만 유지 */
+	flex:1;
 	border-radius: 22px;
 	overflow: hidden;
 	background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
@@ -745,6 +749,7 @@ watch(
 .map-actions {
 	margin-top: 0;
 	flex: 0 0 auto;
+	flex-shrink: 0;
 }
 
 .map-overlay {

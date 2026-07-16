@@ -11,6 +11,7 @@ import BoardWriteView from '../views/BoardWriteView.vue'
 import ChatView from '../views/ChatView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 
+
 const router = createRouter({
 	history: createWebHistory(),
 	routes: [

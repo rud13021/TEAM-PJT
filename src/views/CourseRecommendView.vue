@@ -213,7 +213,10 @@ function addCourseMarker(kakao, map, course, color) {
 }
 
 function addCoursePointMarker(kakao, map, point, color, courseTitle, sequence) {
-	const position = new kakao.maps.LatLng(point.lat, point.lng)
+	const position = new kakao.maps.LatLng(
+	Number(point.lat),
+	Number(point.lng)
+)
 	const marker = new kakao.maps.Marker({
 		position,
 		image: new kakao.maps.MarkerImage(createMarkerSvg(color, 'circle'), new kakao.maps.Size(30, 30), {
@@ -246,7 +249,13 @@ function addCoursePointMarker(kakao, map, point, color, courseTitle, sequence) {
 function drawCoursePolyline(kakao, map, points, color) {
 	const path = points
 		.filter((point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng))
-		.map((point) => new kakao.maps.LatLng(point.lat, point.lng))
+		.map(
+			(point) =>
+				new kakao.maps.LatLng(
+					Number(point.lat),
+					Number(point.lng)
+				)
+)
 
 	if (path.length < 2) {
 		return
@@ -260,7 +269,24 @@ function drawCoursePolyline(kakao, map, points, color) {
 		strokeOpacity: 0.92,
 		strokeStyle: 'solid',
 	})
+
 	polylines.push(line)
+}
+
+function getOrderedCoursePoints(course) {
+	return (course?.coursePoints || [])
+		.map((point, index) => ({
+			...point,
+			sequence: Number.isFinite(Number(point.sequence))
+				? Number(point.sequence)
+				: index,
+		}))
+		.filter(
+			(point) =>
+				Number.isFinite(Number(point.lat)) &&
+				Number.isFinite(Number(point.lng))
+		)
+		.sort((a, b) => a.sequence - b.sequence)
 }
 
 async function loadTravelCourses() {
@@ -434,7 +460,7 @@ watch(travelCourses, () => {
 		<section class="course-top-panels">
 			<div class="panel-card panel-card--hero">
 				<p class="panel-eyebrow">Recommend Course</p>
-				<h1>선택 목적지 기준 최단 이동 여행코스 2개를 빠르게 비교하세요.</h1>
+				<h1>선택 목적지 기준 최단 이동 여행코스를 빠르게 비교해보세요.</h1>
 				<ul class="summary-list">
 					<li>각 장소를 순서 마커와 연결선으로 동시에 표시합니다.</li>
 					<li>코스별 소요시간과 이동거리를 카드에서 바로 확인합니다.</li>
@@ -509,7 +535,7 @@ watch(travelCourses, () => {
 <style scoped>
 .course-page {
 	width: 100%;
-	max-width: 1280px;
+	max-width: 1200px;
 	margin: 0 auto;
 	padding: 24px 24px 72px;
 	box-sizing: border-box;
@@ -517,31 +543,42 @@ watch(travelCourses, () => {
 
 .course-top-panels {
 	display: grid;
-	grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.72fr);
-	align-items: start;
+	grid-template-columns: minmax(0, 1fr) 300px;
 	gap: 20px;
 	margin-bottom: 20px;
+	align-items: stretch;
 }
 
 .course-shell {
 	display: grid;
 	grid-template-columns: minmax(340px, 0.92fr) 1.25fr;
 	gap: 20px;
+	align-items: stretch;
+	height:900px;
 }
 
 .course-panel {
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
+	display:flex;
+	flex-direction:column;
+	height:100%;
+	min-height:0;
+}
+.course-card {
+	flex:1;
+	display:flex;
+	flex-direction:column;
+	min-height:0;
 }
 
 .panel-card {
 	padding: 20px;
 	border-radius: 22px;
-	background: #fff;
+	background: #ffffff5b;
 	border: 1px solid #e2e8f0;
 	box-shadow: 0 10px 25px rgba(15, 23, 42, 0.04);
-	transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+
+	display: flex;
+	flex-direction: column;
 }
 
 .panel-card:hover {
@@ -551,8 +588,9 @@ watch(travelCourses, () => {
 }
 
 .panel-card--compact {
-	max-width: 500px;
-	justify-self: start;
+	width: 100%;
+	max-width: none;
+	justify-self: stretch;
 }
 
 .panel-card--hero h1 {
@@ -683,10 +721,11 @@ watch(travelCourses, () => {
 }
 
 .course-step-scroll {
-	max-height: 280px;
+	flex: 1;
 	overflow-y: auto;
 	padding-right: 4px;
 	scrollbar-width: thin;
+	min-height: 0;
 }
 
 .course-step-scroll::-webkit-scrollbar {
@@ -737,22 +776,33 @@ watch(travelCourses, () => {
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
+
+	height: 100%;
+
 	padding: 18px;
-	border-radius: 28px;
+	border-radius: 22px;
+	background: #ffffff5b;
 	border: 1px solid #e2e8f0;
-	background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
-	box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
-	transition: transform 0.25s ease, box-shadow 0.25s ease;
+	box-shadow: 0 10px 25px rgba(15, 23, 42, 0.04);
+
+	transition:
+		transform 0.2s ease,
+		box-shadow 0.2s ease,
+		border-color 0.2s ease;
 }
 
 .map-panel:hover {
-	transform: translateY(-2px);
-	box-shadow: 0 22px 38px rgba(15, 23, 42, 0.14);
+	transform: translateY(-3px);
+	border-color: #cbd5e1;
+	box-shadow: 0 18px 32px rgba(15, 23, 42, 0.12);
+
 }
 
 .map-stage {
 	position: relative;
-	height: 620px;
+	flex: 1;
+	min-height: 0;
+
 	border-radius: 22px;
 	overflow: hidden;
 	background: linear-gradient(135deg, #e2e8f0 0%, #f8fafc 100%);
