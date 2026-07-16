@@ -73,7 +73,17 @@ function onCreate() {
 }
 
 .list-controls { display:flex; justify-content:flex-end; margin-bottom:8px }
-.category-select { padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--code-bg) }
+.category-select {
+	padding:8px 12px;
+	border-radius:999px;
+	border:1px solid #dbe3ee;
+	background:#fff;
+	color:#334155;
+	cursor:pointer;
+	font-weight:700;
+	transition:0.15s;
+}
+.category-select:hover { background:#eef2ff }
 
 .board-eyebrow {
 	margin: 0 0 6px;

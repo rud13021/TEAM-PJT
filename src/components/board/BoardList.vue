@@ -12,7 +12,7 @@
             </div>
           </div>
           <div class="post-top-right">
-            <div class="post-meta">{{ new Date(item.createdAt).toLocaleDateString() }}</div>
+            <div class="post-meta">{{ new Date(item.createdAt).toLocaleString() }}</div>
           </div>
         </div>
         <p class="post-content">{{ item.content }}</p>
