@@ -70,6 +70,8 @@ const normalizeFestival = (festival, index) => ({
 	startDate: getFestivalStartDate(festival),
 	endDate: getFestivalEndDate(festival),
 	naverSearchUrl: buildFestivalSearchUrl(festival),
+	// normalize category if available, default to 축제공연행사
+	category: festival.category || '축제공연행사',
 })
 
 const isFestivalVisibleInRange = (festival, range) => {
@@ -97,17 +99,16 @@ const festivalCalendarOptions = computed(() => ({
 	},
 	height: 'auto',
 	fixedWeekCount: false,
-	dayMaxEvents: 2,
-	events: festivalItems.value.map((festival, index) => ({
-		id: festival.id,
-		title: festival.title,
-		start: festival.startDate || toFestivalCalendarDate(festival, index),
-		end: festival.endDate || festival.startDate || toFestivalCalendarDate(festival, index),
-		backgroundColor: index % 3 === 0 ? '#4f46e5' : index % 3 === 1 ? '#10b981' : '#f59e0b',
-		borderColor: 'transparent',
-		textColor: '#fff',
-	})),
-	eventContent: (eventInfo) => ({
+	dayMaxEvents: 0,
+		events: festivalItems.value.map((festival, index) => ({
+			id: festival.id,
+			title: festival.title,
+			start: festival.startDate || toFestivalCalendarDate(festival, index),
+			end: festival.endDate || festival.startDate || toFestivalCalendarDate(festival, index),
+			// add class for category-based styling
+			className: [getFestivalCategoryClass(festival.category)],
+		})),
+		eventContent: (eventInfo) => ({
 		html: `<span class="festival-event-badge" aria-hidden="true"></span><span class="festival-event-label">${eventInfo.event.title}</span>`,
 	}),
 	eventMouseEnter: (eventInfo) => {
@@ -116,16 +117,36 @@ const festivalCalendarOptions = computed(() => ({
 	eventMouseLeave: () => {
 		hoveredFestivalId.value = ''
 	},
-	datesSet: (dateInfo) => {
+		datesSet: (dateInfo) => {
 		festivalVisibleRange.value = {
 			start: dateInfo.startStr,
 			end: dateInfo.endStr,
 		}
 	},
+		// leave moreLinkClick undefined so FullCalendar shows its default popover preview
+		dateClick: (info) => {
+			// select a specific date to view festivals on that date
+			selectedFestivalDate.value = info.dateStr
+		},
+		moreLinkText: (num) => `+${num}개`,
 	buttonText: {
 		today: '오늘',
 	},
 }))
+
+function getFestivalCategoryClass(cat) {
+	if (!cat) return 'cat-festival'
+	switch (cat) {
+		case '관광지': return 'cat-tour'
+		case '문화시설': return 'cat-culture'
+		case '레포츠': return 'cat-sports'
+		case '쇼핑': return 'cat-shopping'
+		case '숙박': return 'cat-stay'
+		case '축제공연행사': return 'cat-festival'
+		case '자유': return 'cat-free'
+		default: return 'cat-festival'
+	}
+}
 
 const ctaCards = [
 	{ title: '1. 다차원 정밀 계산', text: '대중교통 환승 시간과 이동 거리의 균형을 반영해 최적 약속 지점을 산출합니다.' },
@@ -314,6 +335,18 @@ const getFestivalItemClass = (festival) => ({
 	'festival-item--active': hoveredFestivalId.value === festival.id,
 })
 
+const selectedFestivalDate = ref('')
+
+const isFestivalOnDate = (festival, dateStr) => {
+	if (!festival.startDate || !festival.endDate || !dateStr) return false
+	return festival.startDate <= dateStr && festival.endDate >= dateStr
+}
+
+const selectedDateFestivals = computed(() => {
+	if (!selectedFestivalDate.value) return []
+	return festivalItems.value.filter((f) => isFestivalOnDate(f, selectedFestivalDate.value))
+})
+
 onMounted(async () => {
 	blogCategories.value = await loadBlogIndexCategories()
 	await loadFestivals()
@@ -478,19 +511,34 @@ watch(blogCategoryId, async () => {
 					<FullCalendar :options="festivalCalendarOptions" />
 				</div>
 				<div class="festival-list">
-					<div v-if="!visibleFestivalItems.length" class="festival-empty">현재 달에 표시할 축제가 없습니다.</div>
-					<div
-						v-for="festival in visibleFestivalItems"
-						:key="festival.id"
-						class="festival-item"
-						:class="getFestivalItemClass(festival)"
-					>
-						<div>
-							<button type="button" class="festival-name-button" @click="openFestivalNaverSearch(festival)">{{ festival.title }}</button>
-							<span>{{ formatFestivalPeriod(festival) }}</span>
+					<div v-if="selectedFestivalDate">
+						<div class="festival-filter-header">
+							<strong>{{ selectedFestivalDate }}</strong>
+							<button type="button" class="search-button" @click="selectedFestivalDate = ''">모두 보기</button>
 						</div>
-						<div class="festival-item__meta">
-							<small>{{ festival.eventplace || festival.addr1 || '서울 지역 축제' }}</small>
+						<div v-if="!selectedDateFestivals.length" class="festival-empty">해당 날짜에 등록된 축제가 없습니다.</div>
+						<div v-else v-for="festival in selectedDateFestivals" :key="festival.id" class="festival-item" :class="getFestivalItemClass(festival)">
+							<div>
+								<span v-if="festival.category && festival.category !== '축제공연행사'" class="festival-category" :class="getFestivalCategoryClass(festival.category)">{{ festival.category }}</span>
+								<button type="button" class="festival-name-button" @click="openFestivalNaverSearch(festival)">{{ festival.title }}</button>
+								<span>{{ formatFestivalPeriod(festival) }}</span>
+							</div>
+							<div class="festival-item__meta">
+								<small>{{ festival.eventplace || festival.addr1 || '서울 지역 축제' }}</small>
+							</div>
+						</div>
+					</div>
+					<div v-else>
+						<div v-if="!visibleFestivalItems.length" class="festival-empty">현재 달에 표시할 축제가 없습니다.</div>
+						<div v-else v-for="festival in visibleFestivalItems" :key="festival.id" class="festival-item" :class="getFestivalItemClass(festival)">
+							<div>
+								<span v-if="festival.category && festival.category !== '축제공연행사'" class="festival-category" :class="getFestivalCategoryClass(festival.category)">{{ festival.category }}</span>
+								<button type="button" class="festival-name-button" @click="openFestivalNaverSearch(festival)">{{ festival.title }}</button>
+								<span>{{ formatFestivalPeriod(festival) }}</span>
+							</div>
+							<div class="festival-item__meta">
+								<small>{{ festival.eventplace || festival.addr1 || '서울 지역 축제' }}</small>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -1071,10 +1119,41 @@ watch(blogCategoryId, async () => {
 	font-size: 0.82rem;
 }
 
-.festival-calendar-wrap :deep(.fc .fc-event) {
+.festival-calendar-wrap :deep(.fc .fc-daygrid-event) {
+	/* keep cell events visually minimal so calendar height is compact */
 	border-radius: 10px;
 	padding: 2px 6px;
 	border: none;
+	background: transparent !important;
+	color: inherit !important;
+}
+
+/* Ensure popover (popover preview shown by FullCalendar) has visible styling */
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event) {
+	background: #4f46e5 !important;
+	color: #fff !important;
+	border-radius: 8px !important;
+	padding: 6px !important;
+}
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event .festival-event-label) {
+	color: #fff !important;
+}
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event.cat-tour) { background:#0ea5a4 !important }
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event.cat-culture) { background:#7c3aed !important }
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event.cat-sports) { background:#ef4444 !important }
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event.cat-shopping) { background:#f59e0b !important }
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event.cat-stay) { background:#10b981 !important }
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event.cat-festival) { background:#06b6d4 !important }
+.festival-calendar-wrap :deep(.fc .fc-popover .fc-event.cat-free) { background:#6b7280 !important }
+
+/* Hide individual event rows inside day cells to show only the +n more link */
+.festival-calendar-wrap :deep(.fc .fc-daygrid-more-link) {
+	display: inline-block !important;
+	padding: 4px 6px !important;
+	border-radius: 8px !important;
+	background: #f8fafc !important;
+	color: #334155 !important;
+	font-weight: 800 !important;
 }
 
 .festival-calendar-wrap :deep(.festival-event-badge) {
@@ -1100,6 +1179,18 @@ watch(blogCategoryId, async () => {
 	display: grid;
 	gap: 10px;
 }
+
+.festival-filter-header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px }
+.festival-filter-header strong { font-weight:800 }
+
+.festival-category { display:inline-block; padding:4px 8px; border-radius:999px; font-size:0.78rem; font-weight:800; color:#fff; margin-right:8px }
+.festival-category.cat-tour { background:#0ea5a4 }
+.festival-category.cat-culture { background:#7c3aed }
+.festival-category.cat-sports { background:#ef4444 }
+.festival-category.cat-shopping { background:#f59e0b; color:#000 }
+.festival-category.cat-stay { background:#10b981 }
+.festival-category.cat-festival { background:#06b6d4 }
+.festival-category.cat-free { background:#6b7280 }
 
 .chart-area {
 	position: relative;
