@@ -4,8 +4,16 @@
     <ul>
       <li v-for="item in items" :key="item.id" class="post-card" @click="$emit('view', item.id)">
         <div class="post-top">
-          <h3 class="post-title">{{ item.title.length > 60 ? item.title.slice(0,60) + '...' : item.title }}</h3>
-          <div class="post-meta">{{ new Date(item.createdAt).toLocaleDateString() }}</div>
+          <div class="post-top-left">
+            <h3 class="post-title">{{ item.title.length > 60 ? item.title.slice(0,60) + '...' : item.title }}</h3>
+            <div class="post-category" :class="getCategoryClass(item.category)">
+              <CategoryIcon :name="item.category || '자유'" class="cat-icon" />
+              {{ item.category || '자유' }}
+            </div>
+          </div>
+          <div class="post-top-right">
+            <div class="post-meta">{{ new Date(item.createdAt).toLocaleString() }}</div>
+          </div>
         </div>
         <p class="post-content">{{ item.content }}</p>
         
@@ -24,14 +32,35 @@
 
 <script setup>
 import { computed } from 'vue'
+import CategoryIcon from '@/components/icons/CategoryIcon.vue'
 import useBoard from '@/composables/useBoard.js'
 
-const props = defineProps({})
+const props = defineProps({ category: { type: String, default: '' } })
+
+function getCategoryClass(cat) {
+  if (!cat) return 'cat-free'
+  switch (cat) {
+    case '관광지': return 'cat-tour'
+    case '문화시설': return 'cat-culture'
+    case '레포츠': return 'cat-sports'
+    case '쇼핑': return 'cat-shopping'
+    case '숙박': return 'cat-stay'
+    case '축제공연행사': return 'cat-festival'
+    case '자유': return 'cat-free'
+    default: return 'cat-free'
+  }
+}
+
+const components = { CategoryIcon }
 const emits = defineEmits(['view', 'create', 'deleted'])
 
 const { getAllPosts, deletePost } = useBoard()
 
-const items = computed(() => getAllPosts())
+const items = computed(() => {
+  const all = getAllPosts()
+  if (!props.category) return all
+  return all.filter(p => (p.category || '') === props.category)
+})
 
 function onDelete(id) {
   const pwd = prompt('삭제 비밀번호를 입력하세요:')
@@ -68,13 +97,24 @@ function onDelete(id) {
 }
 
 .post-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px }
-.post-title { margin:0 0 8px 0; color:var(--text-h); font-size:1.05rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word }
-.post-meta { color:var(--accent); font-size:0.85rem; font-weight:700; margin-top:4px }
+.post-top-left { display:flex; flex-direction:column; gap:6px; align-items:flex-start }
+.post-top-right { display:flex; align-items:flex-start }
+.post-title { margin:0; color:var(--text-h); font-size:1.05rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word }
+.post-meta { color:var(--accent); font-size:0.85rem; font-weight:700 }
+
+.post-category { margin-top:4px; display:inline-block; padding:6px 10px; border-radius:999px; font-size:0.8rem; color:#fff; font-weight:700 }
+.post-category.cat-tour { background:#0ea5a4 }
+.post-category.cat-culture { background:#7c3aed }
+.post-category.cat-sports { background:#ef4444 }
+.post-category.cat-shopping { background:#f59e0b }
+.post-category.cat-stay { background:#10b981 }
+.post-category.cat-festival { background:#06b6d4 }
+.post-category.cat-free { background:#6b7280 }
+.post-category .cat-icon { margin-right:4px; display:inline-flex; vertical-align:middle }
 
 .post-content { margin:0; color:var(--text); line-height:1.6; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; white-space:normal; word-break:break-word; max-height: calc(1.6em * 2); }
 
-.post-tags { display:flex; gap:8px; flex-wrap:wrap }
-.post-tags .tag { background:var(--code-bg); padding:6px 10px; border-radius:999px; font-size:0.85rem; color:var(--text-h) }
+
 
 
 .post-footer { display:flex; justify-content:flex-end; align-items:center; margin-top:auto }

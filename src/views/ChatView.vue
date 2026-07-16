@@ -7,10 +7,9 @@ const { messages, sendMessage, streaming, error } = useChat()
 const chatInput = ref('')
 
 const suggestedPrompts = [
-  '가장 평등한 거점으로 계산해줘',
   '을지로3가역 근처 소셜 모임 추천',
-  '용산 근처 30대 데이트 맛집 코스',
   '성수동 이색 팝업 위주 당일 동선',
+  '서울역 근처 쇼핑할 곳 알려줘'
 ]
 
 const isEmpty = computed(() => chatInput.value.trim() === '')

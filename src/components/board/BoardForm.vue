@@ -15,8 +15,16 @@
         <input v-model="password" type="password" />
       </div>
       <div>
-        <label>태그 (쉼표로 구분)</label>
-        <input v-model="tagsInput" placeholder="예: 맛집,데이트,한강" />
+          <label>카테고리</label>
+          <select v-model="category">
+            <option value="자유">자유</option>
+            <option value="관광지">관광지</option>
+            <option value="문화시설">문화시설</option>
+            <option value="레포츠">레포츠</option>
+            <option value="쇼핑">쇼핑</option>
+            <option value="숙박">숙박</option>
+            <option value="축제공연행사">축제공연행사</option>
+          </select>
       </div>
       <div class="buttons">
         <button type="submit">{{ mode === 'edit' ? '저장' : '등록' }}</button>
@@ -38,7 +46,7 @@ const { getPost, createPost, updatePost } = useBoard()
 const title = ref('')
 const content = ref('')
 const password = ref('')
-const tagsInput = ref('')
+const category = ref('자유')
 
 watch(() => props.postId, (id) => {
   if (props.mode === 'edit' && id) {
@@ -47,20 +55,19 @@ watch(() => props.postId, (id) => {
       title.value = p.title
       content.value = p.content
       password.value = ''
-      tagsInput.value = (p.tags || []).join(',')
+      category.value = p.category || '자유'
     }
   }
 }, { immediate: true })
 
 async function onSubmit() {
-  const tags = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean)
   if (props.mode === 'create') {
-    const res = createPost({ title: title.value, content: content.value, password: password.value, tags })
+    const res = createPost({ title: title.value, content: content.value, password: password.value, category: category.value })
     if (!res.success) return alert(res.message)
     alert('등록되었습니다.')
     emits('created', res.post)
   } else {
-    const res = updatePost(props.postId, { title: title.value, content: content.value, tags }, password.value)
+    const res = updatePost(props.postId, { title: title.value, content: content.value, category: category.value }, password.value)
     if (!res.success) return alert(res.message)
     alert('수정되었습니다.')
     emits('updated', res.post)

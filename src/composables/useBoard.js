@@ -57,14 +57,14 @@ function verifyPassword(post, password) {
   return post.password === password
 }
 
-function createPost({ title, content, password, tags }) {
+function createPost({ title, content, password, category }) {
   // 입력 유효성 검사 및 정리 (HTML 태그 제거)
   const cleanTitle = stripTags(title)
   const cleanContent = stripTags(content)
   if (!cleanTitle) return { success: false, message: '제목을 입력하세요.' }
   if (!cleanContent) return { success: false, message: '내용을 입력하세요.' }
 
-  const cleanTags = (tags || []).map((t) => stripTags(t)).filter(Boolean)
+  const cleanCategory = stripTags(category) || ''
 
   const now = Date.now()
   const post = {
@@ -74,7 +74,7 @@ function createPost({ title, content, password, tags }) {
     password: password || '',
     createdAt: now,
     updatedAt: null,
-    tags: cleanTags,
+    category: cleanCategory,
     likes: 0,
     comments: [],
     views: 0
@@ -130,14 +130,14 @@ function toggleLike(postId) {
   return { success: true, likes: post.likes, liked: !liked }
 }
 
-function addComment(postId, { author, text }) {
+function addComment(postId, { author, text, password }) {
   const idx = posts.value.findIndex((p) => p.id === postId)
   if (idx === -1) return { success: false, message: '게시글을 찾을 수 없습니다.' }
   const post = posts.value[idx]
   const cleanAuthor = stripTags(author) || '익명'
   const cleanText = stripTags(text)
   if (!cleanText) return { success: false, message: '댓글 내용을 입력하세요.' }
-  const comment = { id: generateId(), author: cleanAuthor, text: cleanText, createdAt: Date.now() }
+  const comment = { id: generateId(), author: cleanAuthor, text: cleanText, password: password || '', createdAt: Date.now() }
   post.comments = post.comments || []
   post.comments.push(comment)
   posts.value.splice(idx, 1, { ...post })
@@ -145,12 +145,15 @@ function addComment(postId, { author, text }) {
   return { success: true, comment }
 }
 
-function updateComment(postId, commentId, { author, text }) {
+function updateComment(postId, commentId, { author, text }, password) {
   const idx = posts.value.findIndex((p) => p.id === postId)
   if (idx === -1) return { success: false, message: '게시글을 찾을 수 없습니다.' }
   const post = posts.value[idx]
   const cidx = (post.comments || []).findIndex((c) => c.id === commentId)
   if (cidx === -1) return { success: false, message: '댓글을 찾을 수 없습니다.' }
+  // 비밀번호 검증
+  const existing = post.comments[cidx]
+  if ((existing.password || '') !== (password || '')) return { success: false, message: '비밀번호가 일치하지 않습니다.' }
   const cleanAuthor = stripTags(author) || '익명'
   const cleanText = stripTags(text)
   if (!cleanText) return { success: false, message: '댓글 내용을 입력하세요.' }
@@ -160,16 +163,27 @@ function updateComment(postId, commentId, { author, text }) {
   return { success: true, comment: post.comments[cidx] }
 }
 
-function deleteComment(postId, commentId) {
+function deleteComment(postId, commentId, password) {
   const idx = posts.value.findIndex((p) => p.id === postId)
   if (idx === -1) return { success: false, message: '게시글을 찾을 수 없습니다.' }
   const post = posts.value[idx]
   const cidx = (post.comments || []).findIndex((c) => c.id === commentId)
   if (cidx === -1) return { success: false, message: '댓글을 찾을 수 없습니다.' }
+  // 비밀번호 검증
+  const existing = post.comments[cidx]
+  if ((existing.password || '') !== (password || '')) return { success: false, message: '비밀번호가 일치하지 않습니다.' }
   post.comments.splice(cidx, 1)
   posts.value.splice(idx, 1, { ...post })
   saveToStorage(posts.value)
   return { success: true }
+}
+
+function verifyCommentPassword(postId, commentId, password) {
+  const post = posts.value.find((p) => p.id === postId)
+  if (!post) return false
+  const comment = (post.comments || []).find((c) => c.id === commentId)
+  if (!comment) return false
+  return (comment.password || '') === (password || '')
 }
 
 function incrementView(postId) {
@@ -182,7 +196,7 @@ function incrementView(postId) {
   return { success: true, views: post.views }
 }
 
-function updatePost(id, { title, content, tags }, password) {
+function updatePost(id, { title, content, category }, password) {
   const idx = posts.value.findIndex((p) => p.id === id)
   if (idx === -1) return { success: false, message: '게시글을 찾을 수 없습니다.' }
   const post = posts.value[idx]
@@ -195,13 +209,13 @@ function updatePost(id, { title, content, tags }, password) {
   if (!newTitle) return { success: false, message: '제목을 입력하세요.' }
   if (!newContent) return { success: false, message: '내용을 입력하세요.' }
 
-  const cleanTags = tags ? (Array.isArray(tags) ? tags.map((t) => stripTags(t)).filter(Boolean) : post.tags) : post.tags
+  const cleanCategory = category != null ? (stripTags(category) || post.category || '') : post.category || ''
 
   const updated = {
     ...post,
     title: newTitle,
     content: newContent,
-    tags: cleanTags,
+    category: cleanCategory,
     updatedAt: Date.now()
   }
   posts.value.splice(idx, 1, updated)
@@ -235,6 +249,7 @@ export default function useBoard() {
     deleteComment,
     deletePost,
     verifyPassword,
+    verifyCommentPassword,
     refresh
   }
 }

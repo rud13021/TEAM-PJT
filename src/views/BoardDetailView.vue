@@ -2,10 +2,11 @@
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import useBoard from '@/composables/useBoard.js'
+import CategoryIcon from '@/components/icons/CategoryIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
-const { getPost, deletePost, toggleLike, isLikedByUser, addComment, incrementView, updateComment, deleteComment, verifyPassword } = useBoard()
+const { getPost, deletePost, toggleLike, isLikedByUser, addComment, incrementView, updateComment, deleteComment, verifyPassword, verifyCommentPassword } = useBoard()
 const post = ref(null)
 const userLiked = ref(false)
 
@@ -25,6 +26,22 @@ loadPost(route.params.id)
 watch(() => route.params.id, (id) => {
   loadPost(id)
 })
+
+function getCategoryClass(cat) {
+  if (!cat) return 'cat-free'
+  switch (cat) {
+    case '관광지': return 'cat-tour'
+    case '문화시설': return 'cat-culture'
+    case '레포츠': return 'cat-sports'
+    case '쇼핑': return 'cat-shopping'
+    case '숙박': return 'cat-stay'
+    case '축제공연행사': return 'cat-festival'
+    case '자유': return 'cat-free'
+    default: return 'cat-free'
+  }
+}
+
+const components = { CategoryIcon }
 
 function handleToggleLike() {
   const res = toggleLike(route.params.id)
@@ -54,31 +71,39 @@ function onDelete() {
 
 const commentAuthor = ref('')
 const commentText = ref('')
+const commentPassword = ref('')
 const editCommentId = ref(null)
 const editCommentText = ref('')
 const editCommentAuthor = ref('')
+const editCommentPassword = ref('')
 
 async function submitComment() {
-  const res = addComment(route.params.id, { author: commentAuthor.value, text: commentText.value })
+  const res = addComment(route.params.id, { author: commentAuthor.value, text: commentText.value, password: commentPassword.value })
   if (!res.success) return alert(res.message)
   commentAuthor.value = ''
   commentText.value = ''
+  commentPassword.value = ''
   post.value = getPost(route.params.id)
 }
 
 function startEditComment(comment) {
+  const pwd = prompt('댓글 수정 비밀번호를 입력하세요:')
+  if (pwd === null) return
+  if (!verifyCommentPassword(route.params.id, comment.id, pwd)) return alert('비밀번호가 일치하지 않습니다.')
   editCommentId.value = comment.id
   editCommentText.value = comment.text
   editCommentAuthor.value = comment.author
+  editCommentPassword.value = pwd
 }
 
 async function saveEditComment() {
   if (!editCommentId.value) return
-  const res = updateComment(route.params.id, editCommentId.value, { author: editCommentAuthor.value, text: editCommentText.value })
+  const res = updateComment(route.params.id, editCommentId.value, { author: editCommentAuthor.value, text: editCommentText.value }, editCommentPassword.value)
   if (!res.success) return alert(res.message)
   editCommentId.value = null
   editCommentText.value = ''
   editCommentAuthor.value = ''
+  editCommentPassword.value = ''
   post.value = getPost(route.params.id)
 }
 
@@ -90,7 +115,9 @@ function cancelEditComment() {
 
 async function removeComment(commentId) {
   if (!confirm('댓글을 삭제하시겠습니까?')) return
-  const res = deleteComment(route.params.id, commentId)
+  const pwd = prompt('댓글 삭제 비밀번호를 입력하세요:')
+  if (pwd === null) return
+  const res = deleteComment(route.params.id, commentId, pwd)
   if (!res.success) return alert(res.message)
   post.value = getPost(route.params.id)
 }
@@ -103,6 +130,10 @@ async function removeComment(commentId) {
 
       <div v-if="post">
         <h1 class="detail-title">{{ post.title }}</h1>
+        <div class="detail-category" :class="getCategoryClass(post.category)">
+          <CategoryIcon :name="post.category || '자유'" class="cat-icon" />
+          {{ post.category || '자유' }}
+        </div>
         <div class="meta">{{ new Date(post.createdAt).toLocaleString() }} <span class="likes-detail">👍 {{ post.likes || 0 }}</span></div>
         <p class="content large">{{ post.content }}</p>
       </div>
@@ -122,10 +153,10 @@ async function removeComment(commentId) {
         <div v-for="(comment, index) in post.comments || []" :key="comment.id || index" class="comment-item">
           <div class="comment-row">
             <strong class="comment-author-display">{{ comment.author }}</strong>
-            <div class="comment-controls">
-              <button @click.stop="startEditComment(comment)">수정</button>
-              <button @click.stop="removeComment(comment.id)">삭제</button>
-            </div>
+              <div class="comment-controls">
+                <button class="like-btn" @click.stop="startEditComment(comment)">수정</button>
+                <button class="like-btn" @click.stop="removeComment(comment.id)">삭제</button>
+              </div>
           </div>
 
           <div v-if="editCommentId === comment.id" class="comment-edit">
@@ -142,6 +173,7 @@ async function removeComment(commentId) {
 
         <div class="comment-form">
           <input v-model="commentAuthor" placeholder="닉네임 (선택)" class="comment-author" />
+          <input v-model="commentPassword" placeholder="비밀번호 (댓글 수정/삭제 시 필요)" class="comment-password" />
           <textarea v-model="commentText" placeholder="댓글을 입력하세요" class="comment-text"></textarea>
           <button @click="submitComment" class="comment-submit">댓글 등록</button>
         </div>
@@ -186,6 +218,16 @@ async function removeComment(commentId) {
   line-height: 1.2;
 }
 
+.detail-category { margin: 6px 0; display:inline-block; padding:6px 12px; border-radius:999px; font-size:0.9rem; color:#fff; font-weight:700 }
+.detail-category.cat-tour { background:#0ea5a4 }
+.detail-category.cat-culture { background:#7c3aed }
+.detail-category.cat-sports { background:#ef4444 }
+.detail-category.cat-shopping { background:#f59e0b }
+.detail-category.cat-stay { background:#10b981 }
+.detail-category.cat-festival { background:#06b6d4 }
+.detail-category.cat-free { background:#6b7280 }
+.detail-category .cat-icon { margin-right:4px; display:inline-flex; vertical-align:middle }
+
 .meta {
   margin: 0 0 12px 0;
   color: var(--accent);
@@ -214,6 +256,7 @@ async function removeComment(commentId) {
 
 .comment-form { display:flex; gap:10px; align-items:flex-start }
 .comment-form .comment-author { width:140px; padding:12px 8px; height:54px; box-sizing:border-box; border-radius:10px; border:1px solid var(--border); background:var(--code-bg) }
+.comment-form .comment-password { width:140px; padding:12px 8px; height:54px; box-sizing:border-box; border-radius:10px; border:1px solid var(--border); background:var(--code-bg) }
 .comment-form .comment-text { flex:1; min-height:54px; padding:8px; border-radius:10px; border:1px solid var(--border); background:#fff; overflow:auto }
 .comment-form .comment-submit { padding:10px 14px; border-radius:999px; background:var(--accent); color:#fff; border:none; align-self:center }
 
