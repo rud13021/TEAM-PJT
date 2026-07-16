@@ -16,7 +16,7 @@ const normalize = (data) => {
 
 export async function loadAllDatasets() {
     // 모든 데이터를 병렬로 정규화하여 반환
-    return {
+    const data = {
         places: normalize(placesData),
         restaurants: normalize(restaurantsData),
         festivals: normalize(festivalsData),
