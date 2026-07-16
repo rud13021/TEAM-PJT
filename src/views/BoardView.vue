@@ -1,15 +1,17 @@
 <script setup>
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BoardList from '@/components/board/BoardList.vue'
 
 const router = useRouter()
+const selectedCategory = ref('')
 
 function onView(id) {
-	router.push({ name: 'board-detail', params: { id } })
+  router.push({ name: 'board-detail', params: { id } })
 }
 
 function onCreate() {
-	router.push({ name: 'board-write' })
+  router.push({ name: 'board-write' })
 }
 </script>
 
@@ -25,7 +27,19 @@ function onCreate() {
 			</div>
 
 			<div class="post-list">
-				<BoardList @view="onView" @create="onCreate" @deleted="() => {}" />
+				<div class="list-controls">
+					<select v-model="selectedCategory" class="category-select">
+						<option value="">전체 카테고리</option>
+						<option value="자유">자유</option>
+						<option value="관광지">관광지</option>
+						<option value="문화시설">문화시설</option>
+						<option value="레포츠">레포츠</option>
+						<option value="쇼핑">쇼핑</option>
+						<option value="숙박">숙박</option>
+						<option value="축제공연행사">축제공연행사</option>
+					</select>
+				</div>
+				<BoardList :category="selectedCategory" @view="onView" @create="onCreate" @deleted="() => {}" />
 			</div>
 		</section>
 	</main>
@@ -57,6 +71,9 @@ function onCreate() {
 	align-items: center;
 	gap: 12px;
 }
+
+.list-controls { display:flex; justify-content:flex-end; margin-bottom:8px }
+.category-select { padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--code-bg) }
 
 .board-eyebrow {
 	margin: 0 0 6px;
